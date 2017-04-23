@@ -142,7 +142,7 @@ impl Config {
             None    => {
                 let pager = Pager::default();
                 self.set_pager(pager);
-                self.reload();
+                let _ = self.reload();
                 pager
             },
         }
@@ -150,7 +150,7 @@ impl Config {
 
     pub fn set_pager(&self, pager: Pager) {
         self.config.borrow_mut().set_to(Some("Settings"), "Pager".to_owned(), pager.to_string());
-        self.save();
+        let _ = self.save();
     }
 
     pub fn update_man_path(&self) -> bool {
@@ -159,7 +159,7 @@ impl Config {
             None    => {
                 let update_man_path = UpdateManPath::default();
                 self.set_update_man_path(update_man_path.0);
-                self.reload();
+                let _ = self.reload();
                 update_man_path.0
             },
         }
@@ -167,7 +167,7 @@ impl Config {
 
     pub fn set_update_man_path(&self, update_man_path: bool) {
         self.config.borrow_mut().set_to(Some("Settings"), "UpdateManPath".to_owned(), update_man_path.to_string());
-        self.save();
+        let _ = self.save();
     }
 
      pub fn source(&self) -> Source {
@@ -176,7 +176,7 @@ impl Config {
             None    => {
                 let source = Source::default();
                 self.set_source(source);
-                self.reload();
+                let _ = self.reload();
                 source
             },
         }
@@ -184,6 +184,6 @@ impl Config {
 
     pub fn set_source(&self, source: Source) {
         self.config.borrow_mut().set_to(Some("Settings"), "Source".to_owned(), source.to_string());
-        self.save();
+        let _ = self.save();
     }
 }
