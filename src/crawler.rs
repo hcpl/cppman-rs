@@ -1,11 +1,13 @@
+use std::collections::HashMap;
+
 use url::Url;
 
 
 struct Document {
-    url: Url,
+    pub url: Url,
     query: String,
     status: u32,
-    text: String,
+    pub text: String,
     headers: HashMap<String, String>,
 }
 
