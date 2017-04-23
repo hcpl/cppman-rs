@@ -1,0 +1,8 @@
+[package]
+name = "cppman-rs"
+version = "0.1.0"
+authors = ["hcpl <hcpl.prog@gmail.com>"]
+
+[dependencies]
+either = "1.1.0"
+rust-ini = "0.10.0"
