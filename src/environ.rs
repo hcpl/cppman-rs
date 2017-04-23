@@ -8,10 +8,10 @@ use config::{Config, Source, Pager};
 
 pub struct Environ {
     home: PathBuf,
-    man_dir: PathBuf,
+    pub man_dir: PathBuf,
     config_dir: PathBuf,
     config_file: PathBuf,
-    config: Config,
+    pub config: Config,
 
     index_db_re: PathBuf,
     index_db: PathBuf,

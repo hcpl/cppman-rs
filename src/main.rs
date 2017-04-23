@@ -3,6 +3,7 @@ extern crate ini;
 
 mod config;
 mod environ;
+mod util;
 
 use std::path::PathBuf;
 
