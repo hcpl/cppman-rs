@@ -1,5 +1,10 @@
 extern crate either;
 extern crate ini;
+extern crate regex;
+#[macro_use]
+extern crate lazy_static;
+extern crate chrono;
+extern crate select;
 
 mod config;
 mod crawler;

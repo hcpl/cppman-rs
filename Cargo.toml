@@ -6,4 +6,7 @@ authors = ["hcpl <hcpl.prog@gmail.com>"]
 [dependencies]
 either = "1.1.0"
 rust-ini = "0.10.0"
+regex = "0.2.1"
+lazy_static = "0.2.8"
+chrono = "0.3.0"
 select = "0.4.0"
