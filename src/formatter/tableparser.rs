@@ -80,7 +80,7 @@ lazy_static! {
 
 #[derive(Debug)]
 struct Node {
-    // Original code didn't event **use** parent!!
+    // Original code didn't even **use** parent!!
     //parent: Option<&'a Node<'a>>,
     name: String,
     body: String,
@@ -121,7 +121,7 @@ impl Node {
 
 
 fn strip_tags(html: Either<&str, &Captures>) -> String {
-    let mut data;
+    let data;
 
     match html {
         Left(s)  => data = s,
