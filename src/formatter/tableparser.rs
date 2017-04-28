@@ -262,13 +262,13 @@ fn gen(node: &Node,
                     node.children.borrow_mut().push(Node::new("td", "", ""));
                 }
 
-                gen(&node.children.borrow()[ci], output, Some(i), Some(i == total - 1), rowspan);
+                try!(gen(&node.children.borrow()[ci], output, Some(i), Some(i == total - 1), rowspan));
                 ci += 1;
             }
         }
     } else {
         for (i, c) in node.children.borrow().iter().enumerate() {
-            gen(&c, output, Some(i), Some(i == node.children.borrow().len() - 1), rowspan);
+            try!(gen(&c, output, Some(i), Some(i == node.children.borrow().len() - 1), rowspan));
         }
     }
 
@@ -284,11 +284,11 @@ fn gen(node: &Node,
     Ok(())
 }
 
-pub fn parse_table(html: &str) -> String {
+pub fn parse_table(html: &str) -> Result<String, HtmlError> {
     let root = Node::new("root", "", html);
     let mut output = String::new();
     let mut gen_rowspan = HashMap::new();
 
-    gen(&root, &mut output, None, None, &mut gen_rowspan);
-    output
+    try!(gen(&root, &mut output, None, None, &mut gen_rowspan));
+    Ok(output)
 }

@@ -155,7 +155,7 @@ fn html2groff(data: &str, name: &str) -> String {
 
     let (ref ec_reg, ref ec_repl) = *ESCAPE_COLUMN.deref();
     data = TABLE.replace_all(&data, |c: &Captures| {
-        let mut parsed_table = parse_table(&escape_pre_section(&c[0]));
+        let mut parsed_table = parse_table(&escape_pre_section(&c[0])).unwrap();
         parsed_table = ec_reg.replace_all(&parsed_table, ec_repl.as_str()).into_owned();
         parsed_table
     }).into_owned();
