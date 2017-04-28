@@ -1,10 +1,10 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::Occupied;
-use std::ops::Deref;
 
 use either::{Either, Left, Right};
-use regex::{Regex, Captures};
+use regex::{Regex, Captures, CaptureMatches, Replacer};
 
 use ::formatter::utils::{HtmlError, repeat_char};
 
@@ -17,24 +17,51 @@ struct NodeRegex {
     regex: Regex,
 }
 
+struct NodeCaptureMatches<'r, 't> {
+    cap_matches: CaptureMatches<'r, 't>,
+}
+
 impl NodeRegex {
     fn new() -> NodeRegex {
         NodeRegex { regex: Regex::new("(?s)<\\s*([^/]\\w*)\\s?(.*?)>(.*?)<\\s*/([^/]\\w*).*?>").unwrap() }
     }
 
-    fn captures<'t>(&self, text: &'t str) -> Option<Captures<'t>> {
-        match self.regex.captures(text) {
-            Some(cap) => if cap[1] == cap[4] { Some(cap) } else { None },
-            None      => None,
+    fn captures_iter<'r, 't>(&'r self, text: &'t str) -> NodeCaptureMatches<'r, 't> {
+        NodeCaptureMatches { cap_matches: self.regex.captures_iter(text) }
+    }
+
+    fn replace_all<'t, R: Replacer>(&self, text: &'t str, mut rep: R) -> Cow<'t, str> {
+        let mut it = self.captures_iter(text).peekable();
+        if it.peek().is_none() {
+            return Cow::Borrowed(text);
         }
+
+        let mut new = String::with_capacity(text.len());
+        let mut last_match = 0;
+        for cap in it {
+            if cap[1] == cap[4] {
+                let m = cap.get(0).unwrap();
+                new.push_str(&text[last_match..m.start()]);
+                rep.replace_append(&cap, &mut new);
+                last_match = m.end();
+            }
+        }
+
+        new.push_str(&text[last_match..]);
+        Cow::Owned(new)
     }
 }
 
-impl Deref for NodeRegex {
-    type Target = Regex;
+impl<'r, 't> Iterator for NodeCaptureMatches<'r, 't> {
+    type Item = Captures<'t>;
 
-    fn deref(&self) -> &Regex {
-        &self.regex
+    fn next(&mut self) -> Option<Captures<'t>> {
+        loop {
+            match self.cap_matches.next() {
+                Some(cap) => if cap[1] == cap[4] { return Some(cap) },
+                None      => return None,
+            }
+        }
     }
 }
 
