@@ -93,7 +93,7 @@ lazy_static! {
         // C++ version tag
         (Regex::new("<div.+?title=\"(C\\+\\+..)\"[^>]*>").unwrap(), ".sp\n$1\n".to_owned()),
         // 'br' tag
-        (Regex::new("<br/>").unwrap(), "\n.br\n".to_owned()),
+        (Regex::new("<br></br>").unwrap(), "\n.br\n".to_owned()),
         (Regex::new("\n.br\n.br\n").unwrap(), "\n.sp\n".to_owned()),
         // 'dd' 'dt' tag
         (Regex::new("(?s)<dt>(.+?)</dt>\\s*<dd>(.+?)</dd>").unwrap(), ".IP \"$1\"\n$2\n".to_owned()),
@@ -209,7 +209,7 @@ fn html2groff(data: &str, _name: &str) -> String {
                 } else if sec.contains("MEMBER") && sec.contains("INHERITED") {
                     let inherit = INHERITED_INHERIT.captures(sec).unwrap()[1].to_lowercase();
                     let content2 = INHERITED_NONAME.replace_all(content,
-                        format!("\n.IP \"{}::$1\"", content).as_str()).into_owned();
+                        format!("\n.IP \"{}::$1\"", inherit).as_str()).into_owned();
                     data = data.replace(content, &content2);
                 }
             }
