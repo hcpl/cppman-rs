@@ -6,6 +6,8 @@ use std::os::raw::c_ushort;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use select::document::Document;
+
 use environ::Environ;
 
 
@@ -112,8 +114,8 @@ fn html2man(data: &[u8], formatter: T) -> String {
 }
 
 /// TODO: Use something to fixup HTML
-fn fixupHTML(data: &[u8]) -> String {
-    unimplemented!();
+fn fixupHTML(data: &str) -> String {
+    Document::from(data).nth(0).unwrap().html()
 }
 
 #[cfg(not(target_os = "windows"))]
