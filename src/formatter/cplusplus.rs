@@ -4,6 +4,7 @@ use regex::{Regex, Captures};
 use chrono::Local;
 
 use ::formatter::tableparser::parse_table;
+use ::util::fixup_html;
 
 
 lazy_static! {
@@ -219,4 +220,25 @@ fn html2groff(data: &str, _name: &str) -> String {
     data = data.replace("\n.SE", "");
 
     data
+}
+
+
+#[test]
+/// Test if there is major format changes in cplusplus.com
+fn func_test() {
+    let mut text = String::new();
+    reqwest::get("http://www.cplusplus.com/printf").unwrap().read_to_string(&mut text).unwrap();
+    let result = html2groff(&fixup_html(&text), "printf");
+
+    assert!(result.contains(".SH \"NAME\""));
+    assert!(result.contains(".SH \"TYPE\""));
+    assert!(result.contains(".SH \"DESCRIPTION\""));
+}
+
+#[test]
+/// Simple Text
+fn test() {
+    let mut text = String::new();
+    reqwest::get("http://www.cplusplus.com/vector").unwrap().read_to_string(&mut text).unwrap();
+    print!("{}", html2groff(&fixup_html(&text), "vector"));
 }

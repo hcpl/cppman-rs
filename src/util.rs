@@ -113,8 +113,7 @@ fn html2man(data: &[u8], formatter: T) -> String {
     man_text
 }
 
-/// TODO: Use something to fixup HTML
-fn fixupHTML(data: &str) -> String {
+pub fn fixup_html(data: &str) -> String {
     Document::from(data).nth(0).unwrap().html()
 }
 
