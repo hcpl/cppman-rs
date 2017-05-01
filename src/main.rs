@@ -77,6 +77,42 @@ impl Cppman {
             println!("Skipping blacklisted page '{}' ...", doc.url);
         }
     }
+
+    fn insert_index(&self, table: &str, name: &str, url: &str) {
+        unimplemented!();
+    }
+
+    fn cache_all(&self) {
+        unimplemented!();
+    }
+
+    fn cache_man_page(&self) {
+        unimplemented!();
+    }
+
+    fn clear_cache(&self) {
+        unimplemented!();
+    }
+
+    fn man(&self, pattern: &str) {
+        unimplemented!();
+    }
+
+    fn find(&self, pattern: &str) {
+        unimplemented!();
+    }
+
+    fn update_mandb(&self, quiet: Option<bool>) {
+        unimplemented!();
+    }
+
+    fn get_normalized_page_name(&self, name: &str) {
+        unimplemented!();
+    }
+
+    fn get_page_path(&self, source: &str, name: &str) {
+        unimplemented!();
+    }
 }
 
 
