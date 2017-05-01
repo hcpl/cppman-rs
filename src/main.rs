@@ -68,6 +68,7 @@ impl Cppman {
         unimplemented!();
     }
 
+    /// callback to insert index
     fn process_document(&self, doc: Document) {
         if !self.blacklist.contains(doc.url) {
             println!("Indexing '{}' ...", doc.url);
@@ -78,30 +79,37 @@ impl Cppman {
         }
     }
 
+    /// callback to insert index
     fn insert_index(&self, table: &str, name: &str, url: &str) {
         unimplemented!();
     }
 
+    /// Cache all available man pages
     fn cache_all(&self) {
         unimplemented!();
     }
 
+    /// callback to cache new man page
     fn cache_man_page(&self) {
         unimplemented!();
     }
 
+    /// Clear all cache in man3
     fn clear_cache(&self) {
         unimplemented!();
     }
 
+    /// Call viewer.sh to view man page
     fn man(&self, pattern: &str) {
         unimplemented!();
     }
 
+    /// Find pages in database.
     fn find(&self, pattern: &str) {
         unimplemented!();
     }
 
+    /// Update mandb.
     fn update_mandb(&self, quiet: Option<bool>) {
         unimplemented!();
     }
