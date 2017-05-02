@@ -1,73 +1,17 @@
-use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::Occupied;
 
 use either::{Either, Left, Right};
-use regex::{Regex, Captures, CaptureMatches, Replacer};
+use nom::{IResult, GetInput};
+use regex::{Regex, Captures};
 
-use ::formatter::utils::{HtmlError, repeat_char};
-
-
-// Original regexes (which use backreferences):
-// NODE = re.compile(r'<\s*([^/]\w*)\s?(.*?)>(.*?)<\s*/\1.*?>', re.S)
-// ATTR = re.compile(r'\s*(\w+?)\s*=\s*([\'"])((?:\\.|(?!\2).)*)\2')
-
-struct NodeRegex {
-    regex: Regex,
-}
-
-struct NodeCaptureMatches<'r, 't> {
-    cap_matches: CaptureMatches<'r, 't>,
-}
-
-impl NodeRegex {
-    fn new() -> NodeRegex {
-        NodeRegex { regex: Regex::new("(?s)<\\s*([^/]\\w*)\\s?(.*?)>(.*?)<\\s*/([^/]\\w*).*?>").unwrap() }
-    }
-
-    fn captures_iter<'r, 't>(&'r self, text: &'t str) -> NodeCaptureMatches<'r, 't> {
-        NodeCaptureMatches { cap_matches: self.regex.captures_iter(text) }
-    }
-
-    fn replace_all<'t, R: Replacer>(&self, text: &'t str, mut rep: R) -> Cow<'t, str> {
-        let mut it = self.captures_iter(text).peekable();
-        if it.peek().is_none() {
-            return Cow::Borrowed(text);
-        }
-
-        let mut new = String::with_capacity(text.len());
-        let mut last_match = 0;
-        for cap in it {
-            if cap[1] == cap[4] {
-                let m = cap.get(0).unwrap();
-                new.push_str(&text[last_match..m.start()]);
-                rep.replace_append(&cap, &mut new);
-                last_match = m.end();
-            }
-        }
-
-        new.push_str(&text[last_match..]);
-        Cow::Owned(new)
-    }
-}
-
-impl<'r, 't> Iterator for NodeCaptureMatches<'r, 't> {
-    type Item = Captures<'t>;
-
-    fn next(&mut self) -> Option<Captures<'t>> {
-        loop {
-            match self.cap_matches.next() {
-                Some(cap) => if cap[1] == cap[4] { return Some(cap) },
-                None      => return None,
-            }
-        }
-    }
-}
+use ::utils::{HtmlError, repeat_char};
 
 
 lazy_static! {
-    static ref NODE: NodeRegex = NodeRegex::new();
+    static ref PSEUDO_NODE: Regex = Regex::new(
+        "(?s)<\\s*([^/]\\w*)\\s?(.*?)>(.*?)<\\s*/([^/]\\w*).*?>").unwrap();
     static ref ATTR: Regex = Regex::new("(?x)
         \\s*
         (\\w+?)
@@ -77,13 +21,42 @@ lazy_static! {
     ").unwrap();
 }
 
+macro_rules! cond_else (
+    ($i:expr, $cond:expr, $fmac:ident!( $($fargs:tt)* ), $gmac:ident!( $($gargs:tt)* )) => (
+        {
+            if $cond {
+                map!($i, $fmac!($($fargs)*), Left)
+            } else {
+                map!($i, $gmac!($($gargs)*), Right)
+            }
+        }
+    );
+    ($i:expr, $cond:expr, $fmac:ident!( $($fargs:tt)* ), $g:expr) => (
+        cond_else!($i, $cond, $fmac!($($fargs)*), call!($g))
+    );
+    ($i:expr, $cond:expr, $f:expr, $gmac:ident!( $($gargs:tt)* )) => (
+        cond_else!($i, $cond, call!($f), $gmac!($($gargs)*))
+    );
+    ($i:expr, $cond:expr, $f:expr, $g:expr) => (
+        cond_else!($i, $cond, call!($f), call!($g))
+    );
+);
+
+fn is_alphanumeric_(c: char) -> bool {
+    c == '_' || c.is_alphanumeric()
+}
+
+fn is_not_less_than(c: char) -> bool {
+    c != '<'
+}
+
 
 #[derive(Debug)]
 struct Node {
     // Original code didn't even **use** parent!!
     //parent: Option<&'a Node<'a>>,
     name: String,
-    body: String,
+    //body: String,
     attr: HashMap<String, String>,
     text: String,
     children: RefCell<Vec<Node>>,
@@ -91,32 +64,103 @@ struct Node {
 
 impl Node {
     fn new(name: &str, attr_list: &str, body: &str) -> Node {
-        let attr = ATTR.captures_iter(attr_list).map(|c| {
-            if c.get(2) == None {
-                (c[0].to_owned(), c[1].to_owned())
-            } else {
-                (c[0].to_owned(), c[2].to_owned())
-            }
-        }).collect::<HashMap<String, String>>();
-
-        let mut node = Node {
-            name: name.to_owned(),
-            body: body.to_owned(),
-            attr: attr,
-            text: "".to_owned(),
-            children: RefCell::new(Vec::new()),
-        };
-
-        if name == "th" || name == "td" {
-            node.text = strip_tags(Left(body));
-        } else {
-            node.children.borrow_mut().extend(
-                NODE.captures_iter(body)
-                    .map(|c| Node::new(&c[1], &c[2], &c[3])));
-        }
-
-        node
+        parse_node(name, attr_list, body)
     }
+
+    fn text(&self) -> String {
+        let mut s = String::new();
+        self.impl_text(&mut s);
+        s
+    }
+
+    fn impl_text(&self, out: &mut String) {
+        out.push_str(&self.text);
+
+        for c in self.children.borrow().iter() {
+            c.impl_text(out);
+        }
+    }
+}
+
+fn parse_node(name: &str, attr_list: &str, body: &str) -> Node {
+    let attr = ATTR.captures_iter(attr_list).map(|c| {
+        if c.get(2) == None {
+            (c[0].to_owned(), c[1].to_owned())
+        } else {
+            (c[0].to_owned(), c[2].to_owned())
+        }
+    }).collect::<HashMap<String, String>>();
+
+    let text;
+    let children;
+
+    if name == "th" || name == "td" {
+        text = strip_tags(Left(body));
+        children = Vec::new();
+    } else {
+        text = "".to_owned();
+        children = parse_children(body).to_full_result().unwrap_or(Vec::new());
+    }
+
+    Node {
+        name: name.to_owned(),
+        attr: attr,
+        text: text,
+        children: RefCell::new(children),
+    }
+}
+
+fn parse_children(body: &str) -> IResult<&str, Vec<Node>> {
+    let i = take_while!(body, char::is_whitespace).remaining_input().unwrap_or(body);
+
+    many0!(i, do_parse!(
+        char!('<') >>
+        take_while!(char::is_whitespace) >>
+        name: take_while!(is_alphanumeric_) >>
+        take_while!(char::is_whitespace) >>
+        attr: map!(many0!(do_parse!(
+            key: take_while!(is_alphanumeric_) >>
+            take_while!(char::is_whitespace) >>
+            char!('=') >>
+            take_while!(char::is_whitespace) >>
+            quote_mark: one_of!("'\"") >>
+            value: map!(many0!(none_of!(&quote_mark.to_string())), |v: Vec<_>| v.into_iter().collect::<String>()) >>
+            char!(quote_mark) >>
+            take_while!(char::is_whitespace) >>
+
+            ((key.to_owned(), value.to_owned()))
+        )), |v: Vec<_>| v.into_iter().collect::<HashMap<_, _>>()) >>
+        char!('>') >>
+        text: take_while!(is_not_less_than) >>
+        children: parse_children >>
+        char!('<') >>
+        take_while!(char::is_whitespace) >>
+        char!('/') >>
+        tag!(name) >>
+        take_while!(char::is_whitespace) >>
+        char!('>') >>
+        take_while!(char::is_whitespace) >>
+
+        ({
+            let text_;
+            let children_;
+
+            if name == "th" || name == "td" {
+                text_ = format!("{}{}", text, children.iter().map(Node::text).collect::<String>());
+                children_ = Vec::new();
+            } else {
+                text_ = text.to_owned();
+                children_ = children;
+            }
+
+            Node {
+                name: name.to_owned(),
+                attr: attr,
+                text: text_,
+                children: RefCell::new(children_),
+            }
+        })
+    ))
 }
 
 
@@ -128,7 +172,7 @@ fn strip_tags(html: Either<&str, &Captures>) -> String {
         Right(c) => data = &c[3],
     }
 
-    NODE.replace_all(data, |c: &Captures| strip_tags(Right(c))).into_owned()
+    PSEUDO_NODE.replace_all(data, |c: &Captures| strip_tags(Right(c))).into_owned()
 }
 
 fn traverse(node: &Node, depth: Option<usize>) {
