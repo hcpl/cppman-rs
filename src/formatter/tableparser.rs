@@ -6,7 +6,7 @@ use either::{Either, Left, Right};
 use nom::{IResult, GetInput};
 use regex::{Regex, Captures};
 
-use ::utils::{HtmlError, repeat_char};
+use ::formatter::utils::{HtmlError, repeat_char};
 
 
 lazy_static! {
@@ -82,6 +82,11 @@ impl Node {
     }
 }
 
+
+fn eithers_to_nodes(eithers: Vec<Either<String, Node>>) -> Vec<Node> {
+    eithers.into_iter().filter_map(Either::right).collect::<Vec<_>>()
+}
+
 fn parse_node(name: &str, attr_list: &str, body: &str) -> Node {
     let attr = ATTR.captures_iter(attr_list).map(|c| {
         if c.get(2) == None {
@@ -99,7 +104,7 @@ fn parse_node(name: &str, attr_list: &str, body: &str) -> Node {
         children = Vec::new();
     } else {
         text = "".to_owned();
-        children = parse_children(body).to_full_result().unwrap_or(Vec::new());
+        children = parse_children(body).to_full_result().map(eithers_to_nodes).unwrap_or(Vec::new());
     }
 
     Node {
@@ -110,56 +115,68 @@ fn parse_node(name: &str, attr_list: &str, body: &str) -> Node {
     }
 }
 
-fn parse_children(body: &str) -> IResult<&str, Vec<Node>> {
-    let i = take_while!(body, char::is_whitespace).remaining_input().unwrap_or(body);
+fn parse_children(body: &str) -> IResult<&str, Vec<Either<String, Node>>> {
+    named!(take_not_less_than<&str, &str>, take_while1!(is_not_less_than));
 
-    many0!(i, do_parse!(
-        char!('<') >>
-        take_while!(char::is_whitespace) >>
-        name: take_while!(is_alphanumeric_) >>
-        take_while!(char::is_whitespace) >>
-        attr: map!(many0!(do_parse!(
-            key: take_while!(is_alphanumeric_) >>
+    many0!(body, alt_complete!(
+        do_parse!(
+            text: take_not_less_than >>
+
+            (Left(text.to_owned()))
+        ) |
+        do_parse!(
             take_while!(char::is_whitespace) >>
-            char!('=') >>
+            char!('<') >>
             take_while!(char::is_whitespace) >>
-            quote_mark: one_of!("'\"") >>
-            value: map!(many0!(none_of!(&quote_mark.to_string())), |v: Vec<_>| v.into_iter().collect::<String>()) >>
-            char!(quote_mark) >>
+            name: take_while!(is_alphanumeric_) >>
+            take_while!(char::is_whitespace) >>
+            attr: map!(many0!(do_parse!(
+                key: take_while!(is_alphanumeric_) >>
+                take_while!(char::is_whitespace) >>
+                char!('=') >>
+                take_while!(char::is_whitespace) >>
+                quote_mark: one_of!("'\"") >>
+                value: map!(many0!(none_of!(&quote_mark.to_string())), |v: Vec<_>| v.into_iter().collect::<String>()) >>
+                char!(quote_mark) >>
+                take_while!(char::is_whitespace) >>
+
+                ((key.to_owned(), value.to_owned()))
+            )), |v: Vec<_>| v.into_iter().collect::<HashMap<_, _>>()) >>
+            char!('>') >>
+            impl_children: parse_children >>
+            char!('<') >>
+            take_while!(char::is_whitespace) >>
+            char!('/') >>
+            tag!(name) >>
+            take_while!(char::is_whitespace) >>
+            char!('>') >>
             take_while!(char::is_whitespace) >>
 
-            ((key.to_owned(), value.to_owned()))
-        )), |v: Vec<_>| v.into_iter().collect::<HashMap<_, _>>()) >>
-        char!('>') >>
-        text: take_while!(is_not_less_than) >>
-        children: parse_children >>
-        char!('<') >>
-        take_while!(char::is_whitespace) >>
-        char!('/') >>
-        tag!(name) >>
-        take_while!(char::is_whitespace) >>
-        char!('>') >>
-        take_while!(char::is_whitespace) >>
+            ({
+                let text;
+                let children;
 
-        ({
-            let text_;
-            let children_;
+                text = impl_children.iter().map(|&ref e| match *e {
+                    Left(ref text) => text.clone(),
+                    Right(ref node) => node.text(),
+                }).collect::<String>();
 
-            if name == "th" || name == "td" {
-                text_ = format!("{}{}", text, children.iter().map(Node::text).collect::<String>());
-                children_ = Vec::new();
-            } else {
-                text_ = text.to_owned();
-                children_ = children;
-            }
+                children = if name == "th" || name == "td" {
+                    Vec::new()
+                } else {
+                    eithers_to_nodes(impl_children)
+                };
 
-            Node {
-                name: name.to_owned(),
-                attr: attr,
-                text: text_,
-                children: RefCell::new(children_),
-            }
-        })
+                let n = Node {
+                    name: name.to_owned(),
+                    attr: attr,
+                    text: text,
+                    children: RefCell::new(children),
+                };
+
+                Right(n)
+            })
+        )
     ))
 }
 
@@ -359,7 +376,6 @@ pub fn parse_table(html: &str) -> Result<String, HtmlError> {
     let root = Node::new("root", "", html);
     let mut output = String::new();
     let mut gen_rowspan = HashMap::new();
-
     try!(gen(&root, &mut output, None, None, &mut gen_rowspan));
     Ok(output)
 }
