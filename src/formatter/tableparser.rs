@@ -107,11 +107,24 @@ fn parse_node(name: &str, attr_list: &str, body: &str) -> Node {
         children = parse_children(body).to_full_result().map(eithers_to_nodes).unwrap_or(Vec::new());
     }
 
-    Node {
+    let node = Node {
         name: name.to_owned(),
         attr: attr,
         text: text,
         children: RefCell::new(children),
+    };
+
+    remove_excess_text(node)
+}
+
+fn remove_excess_text(node: Node) -> Node {
+    let text = if node.name == "th" || node.name == "td" { node.text } else { "".to_owned() };
+
+    Node {
+        name: node.name,
+        attr: node.attr,
+        text: text,
+        children: RefCell::new(node.children.into_inner().into_iter().map(remove_excess_text).collect::<Vec<_>>()),
     }
 }
 
