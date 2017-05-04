@@ -66,20 +66,6 @@ impl Node {
     fn new(name: &str, attr_list: &str, body: &str) -> Node {
         parse_node(name, attr_list, body)
     }
-
-    fn text(&self) -> String {
-        let mut s = String::new();
-        self.impl_text(&mut s);
-        s
-    }
-
-    fn impl_text(&self, out: &mut String) {
-        out.push_str(&self.text);
-
-        for c in self.children.borrow().iter() {
-            c.impl_text(out);
-        }
-    }
 }
 
 
@@ -138,7 +124,6 @@ fn parse_children(body: &str) -> IResult<&str, Vec<Either<String, Node>>> {
             (Left(text.to_owned()))
         ) |
         do_parse!(
-            take_while!(char::is_whitespace) >>
             char!('<') >>
             take_while!(char::is_whitespace) >>
             name: take_while!(is_alphanumeric_) >>
@@ -163,7 +148,6 @@ fn parse_children(body: &str) -> IResult<&str, Vec<Either<String, Node>>> {
             tag!(name) >>
             take_while!(char::is_whitespace) >>
             char!('>') >>
-            take_while!(char::is_whitespace) >>
 
             ({
                 let text;
@@ -171,7 +155,7 @@ fn parse_children(body: &str) -> IResult<&str, Vec<Either<String, Node>>> {
 
                 text = impl_children.iter().map(|&ref e| match *e {
                     Left(ref text) => text.clone(),
-                    Right(ref node) => node.text(),
+                    Right(ref node) => node.text.clone(),
                 }).collect::<String>();
 
                 children = if name == "th" || name == "td" {
