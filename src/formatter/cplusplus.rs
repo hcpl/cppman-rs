@@ -103,6 +103,7 @@ lazy_static! {
         (Regex::new("(?s)<td class=\"rownum\">.*?</td>").unwrap(), "".to_owned()),
         // Any other tags
         (Regex::new("<script[^>]*>[^<]*</script>").unwrap(), "".to_owned()),
+        (Regex::new("=\"([^>\"]*)>([^\"]*)\"").unwrap(), "=\"$1&gt;$2\"".to_owned()),
         (Regex::new("(?s)<.*?>").unwrap(), "".to_owned()),
         // Misc
         (Regex::new("&lt;").unwrap(), "<".to_owned()),
@@ -117,7 +118,7 @@ lazy_static! {
         (Regex::new("\n\\s*\n+").unwrap(), "\n".to_owned()),
         (Regex::new("\n\n+").unwrap(), "\n".to_owned()),
         // Preserve \n" in EXAMPLE
-        //(Regex::new("\\\\n").unwrap(), "\\en".to_owned()),
+        (Regex::new("\\\\n").unwrap(), "\\en".to_owned()),
     ];
 
     static ref SECTION_HEADER: Regex = Regex::new(".SH .*\n").unwrap();
