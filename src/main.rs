@@ -5,16 +5,24 @@ extern crate regex;
 extern crate lazy_static;
 extern crate chrono;
 extern crate select;
+extern crate rusqlite;
+extern crate isatty;
 
 mod config;
 mod crawler;
 mod environ;
 mod util;
 
+use std::fs;
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::path::PathBuf;
+use std::process::{Command, ExitStatus};
 
-use url::Url;
+use isatty::stdout_isatty;
+use regex::Regex;
+use rusqlite::Connection;
+//use url::Url;
 
 use crawler::Crawler;
 use environ::Environ;
@@ -35,6 +43,7 @@ struct Cppman {
 
     blacklist: Vec<Url>,
     name_exceptions: Vec<String>,
+    env: Environ,
 }
 
 impl Cppman {
@@ -53,6 +62,7 @@ impl Cppman {
 
             blacklist: Vec::new(),
             name_exceptions: vec!["http://www.cplusplus.com/reference/string/swap/".to_owned()],
+            env: env.clone(),
         }
     }
 
@@ -95,8 +105,8 @@ impl Cppman {
     }
 
     /// Clear all cache in man3
-    fn clear_cache(&self) {
-        unimplemented!();
+    fn clear_cache(&self) -> io::Result<()> {
+        fs::remove_dir_all(self.env.man_dir)
     }
 
     /// Call viewer.sh to view man page
@@ -105,22 +115,60 @@ impl Cppman {
     }
 
     /// Find pages in database.
-    fn find(&self, pattern: &str) {
-        unimplemented!();
+    fn find(&self, pattern: &str) -> io::Result<()> {
+        if !Path::new(self.env.indexdb).exists() {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "can't find index.db"));
+        }
+
+        let conn = try!(Connection::open(self.env.index_db));
+        let stmt = try!(conn.prepare(&format!(
+            "SELECT * FROM \"{}\" WHERE name \
+             LIKE \"%{}%\" ORDER BY LENGTH(name)",
+            self.env.source, pattern)));
+        let selected = try!(stmt.query_map(&[], |&row| {
+            (try!(row.get_checked(0)), try!(row.get_checked(1)))
+        })).collect::<Vec<_>>();
+
+        let pat = try!(Regex::new(&format!("(?i)\\({}\\)", pattern)));
+
+        if selected.len() > 0 {
+            for (name, url) in selected {
+                if stdout_isatty() {
+                    println!("{}", pat.replace(name, "\\033[1;31m$1\\033[0m"));
+                } else {
+                    println!("{}", name);
+                }
+            }
+
+            Ok(())
+        } else {
+            Err(io::Error::new(io::ErrorKind::NotFound, "{}: nothing appropriate".format(pattern)))
+        }
     }
 
     /// Update mandb.
-    fn update_mandb(&self, quiet: Option<bool>) {
-        unimplemented!();
-    }
+    fn update_mandb(&self, quiet: Option<bool>) -> io::Result<ExitStatus> {
+        let quiet = quiet.unwrap_or(true);
 
-    fn get_normalized_page_name(&self, name: &str) {
-        unimplemented!();
+        if !self.env.config.update_man_path() {
+            return;
+        }
+
+        println!("\nrunning mandb...");
+        let cmd = format!("mandb {}", if quiet { "-q" } else { "" });
+        Command::new("mandb")
+                .args(if quiet { &["-q"] } else { &[] })
+                .status()
     }
 
     fn get_page_path(&self, source: &str, name: &str) {
-        unimplemented!();
+        let name = get_normalized_page_name(name);
+        PathBuf::from_iter(vec![self.env.man_dir, source, name + ".3.gz"])
     }
+}
+
+fn get_normalized_page_name(name: &str) -> String {
+    name.replace("/", "_")
 }
 
 

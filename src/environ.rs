@@ -6,6 +6,7 @@ use get_lib_path;
 use config::{Config, Source, Pager};
 
 
+#[derive(Clone)]
 pub struct Environ {
     home: PathBuf,
     pub man_dir: PathBuf,
