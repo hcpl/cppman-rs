@@ -85,6 +85,7 @@ impl Default for Source {
 }
 
 
+#[derive(Clone)]
 pub struct Config {
     config_file: PathBuf,
     config: RefCell<Ini>,

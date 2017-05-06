@@ -73,7 +73,7 @@ impl Cppman {
 
     /// Rebuild index database from cplusplus.com and cppreference.com.
     fn rebuild_index(&self) {
-        let _ = fs::remove_file(env.index_db_re);
+        let _ = fs::remove_file(self.env.index_db_re);
 
         unimplemented!();
     }
@@ -116,23 +116,26 @@ impl Cppman {
 
     /// Find pages in database.
     fn find(&self, pattern: &str) -> io::Result<()> {
-        if !Path::new(self.env.indexdb).exists() {
+        if !self.env.index_db.exists() {
             return Err(io::Error::new(io::ErrorKind::NotFound, "can't find index.db"));
         }
 
-        let conn = try!(Connection::open(self.env.index_db));
+        let conn = try!(Connection::open(self.env.index_db)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e)));
         let stmt = try!(conn.prepare(&format!(
             "SELECT * FROM \"{}\" WHERE name \
              LIKE \"%{}%\" ORDER BY LENGTH(name)",
             self.env.source, pattern)));
         let selected = try!(stmt.query_map(&[], |&row| {
-            (try!(row.get_checked(0)), try!(row.get_checked(1)))
+            Ok((try!(row.get_checked(0).map_err(|e| io::Error::new(io::ErrorKind::Other, e))),
+                try!(row.get_checked(1).map_err(|e| io::Error::new(io::ErrorKind::Other, e)))))
         })).collect::<Vec<_>>();
 
-        let pat = try!(Regex::new(&format!("(?i)\\({}\\)", pattern)));
+        let pat = try!(Regex::new(&format!("(?i)\\({}\\)", pattern))
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e)));
 
         if selected.len() > 0 {
-            for (name, url) in selected {
+            for Ok((name, url)) in selected {
                 if stdout_isatty() {
                     println!("{}", pat.replace(name, "\\033[1;31m$1\\033[0m"));
                 } else {
@@ -142,16 +145,16 @@ impl Cppman {
 
             Ok(())
         } else {
-            Err(io::Error::new(io::ErrorKind::NotFound, "{}: nothing appropriate".format(pattern)))
+            Err(io::Error::new(io::ErrorKind::NotFound, format!("{}: nothing appropriate", pattern)))
         }
     }
 
     /// Update mandb.
-    fn update_mandb(&self, quiet: Option<bool>) -> io::Result<ExitStatus> {
+    fn update_mandb(&self, quiet: Option<bool>) -> io::Result<()> {
         let quiet = quiet.unwrap_or(true);
 
         if !self.env.config.update_man_path() {
-            return;
+            return Ok(());
         }
 
         println!("\nrunning mandb...");
@@ -159,11 +162,15 @@ impl Cppman {
         Command::new("mandb")
                 .args(if quiet { &["-q"] } else { &[] })
                 .status()
+                .map(|_| ())
     }
 
-    fn get_page_path(&self, source: &str, name: &str) {
+    fn get_page_path(&self, source: &str, name: &str) -> PathBuf {
         let name = get_normalized_page_name(name);
-        PathBuf::from_iter(vec![self.env.man_dir, source, name + ".3.gz"])
+        let mut path = PathBuf::from(self.env.man_dir);
+        path.push(source);
+        path.push(name + ".3.gz");
+        path
     }
 }
 

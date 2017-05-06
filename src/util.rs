@@ -20,7 +20,7 @@ fn update_mandb_path(env: &Environ) {
     let mut lines: Vec<String> = Vec::new();
     match File::open(manpath_file) {
         Ok(f)  => {
-            lines.extend(BufReader::new(f).lines());
+            lines.extend(BufReader::new(f).lines().filter_map(Result::ok));
         },
         Err(_) => {
             if !env.config.update_man_path() {
@@ -29,7 +29,7 @@ fn update_mandb_path(env: &Environ) {
         },
     }
 
-    let has_path = lines.iter().any(|l| l.contains(manpath));
+    let has_path = lines.iter().any(|l| manpath.to_str().map(|p| l.contains(p)).unwrap_or(false));
 
     let Ok(f) = File::create(manpath_file);
     if env.config.update_man_path() {
@@ -37,7 +37,10 @@ fn update_mandb_path(env: &Environ) {
             lines.push(format!("MANDATORY_MANPATH\t{}\n", home.join(manpath).display()));
         }
     } else {
-        lines = lines.into_iter().filter(|l| l.contains(manpath)).collect();
+        lines = lines
+            .into_iter()
+            .filter(|l| manpath.to_str().map(|p| l.contains(p)).unwrap_or(false))
+            .collect();
     }
 
     lines.into_iter().map(|l| write!(f, "{}\n", l));
@@ -49,7 +52,7 @@ fn update_man3_link(env: &Environ) {
     if let Ok(metadata) = fs::symlink_metadata(man3_path) {
         if metadata.file_type().is_symlink() {
             let Ok(link_to) = fs::read_link(man3_path);
-            if link_to == env.config.source() {
+            if link_to == Path::new(&env.config.source().to_string()) {
                 return;
             } else {
                 fs::remove_file(man3_path);
@@ -61,7 +64,7 @@ fn update_man3_link(env: &Environ) {
 
     let _ = fs::create_dir_all(env.man_dir.join(env.config.source()));
 
-    let _ = create_file_symlink(env.config.source(), man3_path);
+    let _ = create_file_symlink(env.config.source().to_string(), man3_path);
 }
 
 struct WinSize {

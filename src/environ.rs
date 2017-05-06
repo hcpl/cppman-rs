@@ -14,14 +14,14 @@ pub struct Environ {
     config_file: PathBuf,
     pub config: Config,
 
-    index_db_re: PathBuf,
-    index_db: PathBuf,
+    pub index_db_re: PathBuf,
+    pub index_db: PathBuf,
 
     pager: Pager,
     pager_config: PathBuf,
     pager_script: PathBuf,
 
-    source: Source,
+    pub source: Source,
 }
 
 impl Environ {
