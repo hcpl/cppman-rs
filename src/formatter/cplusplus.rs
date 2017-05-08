@@ -142,7 +142,7 @@ fn escape_pre_section(table: &str) -> String {
 }
 
 /// Convert HTML text from cplusplus.com to Groff-formated text.
-fn html2groff(data: &str, _name: &str) -> String {
+pub fn html2groff(data: &str, _name: &str) -> String {
     let mut data = data.to_owned();
 
     // Remove sidebar

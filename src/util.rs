@@ -1,10 +1,14 @@
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufRead, Write};
-use std::os::{unix, windows};
 use std::os::raw::c_ushort;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+
+#[cfg(not(target_os = "windows"))]
+use std::os::unix;
+#[cfg(target_os = "windows")]
+use std::os::windows;
 
 use select::document::Document;
 
@@ -62,7 +66,7 @@ fn update_man3_link(env: &Environ) {
         }
     }
 
-    let _ = fs::create_dir_all(env.man_dir.join(env.config.source()));
+    let _ = fs::create_dir_all(env.man_dir.join(env.config.source().to_string()));
 
     let _ = create_file_symlink(env.config.source().to_string(), man3_path);
 }

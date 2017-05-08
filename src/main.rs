@@ -5,21 +5,26 @@ extern crate regex;
 extern crate lazy_static;
 extern crate chrono;
 extern crate select;
+#[macro_use]
+extern crate nom;
 extern crate rusqlite;
 extern crate isatty;
 extern crate flate2;
+extern crate reqwest;
 
 mod config;
 mod crawler;
 mod environ;
+mod formatter;
 mod util;
 
 use std::borrow::Borrow;
 use std::cell::Cell;
+use std::collections::{HashMap, HashSet};
 use std::error;
 use std::fs::{self, File};
-use std::collections::{HashMap, HashSet};
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
+use std::ops::AddAssign;
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus};
 
@@ -61,12 +66,12 @@ struct Cppman {
     name_exceptions: Vec<String>,
     env: Environ,
 
-    db_conn: Connection,
+    db_conn: Option<Connection>,
 }
 
 impl Cppman {
     fn new_default(env: &Environ) -> Cppman {
-        Cppman::new(false, None, env)
+        Cppman::new(Some(false), None, env)
     }
 
     fn new(forced: Option<bool>, force_columns: Option<usize>, env: &Environ) -> Cppman {
@@ -74,13 +79,15 @@ impl Cppman {
             crawler: Crawler::new(),
             results: HashSet::new(),
             forced: forced.unwrap_or(false),
-            success_count: None,
-            failure_count: None,
+            success_count: Cell::new(None),
+            failure_count: Cell::new(None),
             force_columns: force_columns,
 
             blacklist: Vec::new(),
             name_exceptions: vec!["http://www.cplusplus.com/reference/string/swap/".to_owned()],
             env: env.clone(),
+
+            db_conn: None,
         }
     }
 
@@ -94,7 +101,7 @@ impl Cppman {
                     name = TAG.replace(name, "").borrow();
                     name = GREATER_THAN.replace(name, ">").borrow();
                     name = LESSER_THAN.replace(name, ">").borrow();
-                    name
+                    name.to_owned()
                 }).ok_or(new_io_error("No capture #1 found"))
             })
     }
@@ -119,21 +126,25 @@ impl Cppman {
 
     /// callback to insert index
     fn insert_index(&self, table: &str, name: &str, url: &str) -> io::Result<()> {
-        let mut names = name.split(',').collect::<Vec<_>>();
+        let mut names = name.split(',').map(str::to_owned).collect::<Vec<_>>();
 
         if names.len() > 1 {
-            if let Some(caps) = OPERATOR.captures(names[0]) {
-                let prefix = try!(caps.get(1).ok_or(new_io_error("No such capture $1"))).as_str();
-                names[0] = try!(caps.get(2).ok_or(new_io_error("No such capture $2"))).as_str();
-                names = names.into_iter().map(|n| prefix + n).collect::<Vec<_>>();
+            if let Some(caps) = OPERATOR.captures(&names[0]) {
+                let prefix = try!(caps.get(1).ok_or(new_io_error("No capture $1"))).as_str().to_owned();
+                names[0] = try!(caps.get(2).ok_or(new_io_error("No capture $2"))).as_str().to_owned();
+                names = names.into_iter().map(|n| prefix.to_owned() + &n).collect::<Vec<_>>();
             }
         }
 
         for n in names {
-            try!(self.db_conn.execute(
-                format!("INSERT INTO \"{}\" (name, url) VALUES (?, ?)", table), &[n.trim(), url])
+            let db_conn = try!(self.db_conn.ok_or(new_io_error("No Cppman::db_conn available!")));
+
+            try!(db_conn.execute(
+                &format!("INSERT INTO \"{}\" (name, url) VALUES (?, ?)", table), &[&n.trim(), &url])
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e)));
         }
+
+        Ok(())
     }
 
     /// Cache all available man pages
@@ -146,54 +157,57 @@ impl Cppman {
 
         let mut respond = String::new();
         try!(io::stdin().read_line(&mut respond));
-        if !["y", "ye", "yes"].contains(&&respond.to_lowercase()) {
+        if !["y", "ye", "yes"].contains(&respond.to_lowercase().as_str()) {
             return Err(io::Error::new(io::ErrorKind::Interrupted, ""));
         }
 
-        try!(fs::create_dir_all());
+        try!(fs::create_dir_all(self.env.man_dir));
 
-        self.success_count = Some(0);
-        self.failure_count = Some(0);
+        self.success_count.set(Some(0));
+        self.failure_count.set(Some(0));
 
         if !self.env.index_db.exists() {
-            return new_io_error("can't find index.db");
+            return Err(new_io_error("can't find index.db"));
         }
 
         {
-            let conn = Connection::open(self.env.index_db);
+            let conn = try!(Connection::open(self.env.index_db).map_err(new_io_error));
 
-            let source = self.env.config.source;
+            let source = self.env.config.source();
             println!("Caching manpages from {} ...", source);
-            let stmt = try!(conn.prepare(format!("SELECT * FROM \"{}\"", source)).map_err(new_io_error));
-            let data = try!(stmt.query_map(&[], |&row| {
-                Ok((try!(row.get_checked(0).map_err(new_io_error)),
-                    try!(row.get_checked(1).map_err(new_io_error))))
-            }));
+            let stmt = try!(conn.prepare(&format!("SELECT * FROM \"{}\"", source)).map_err(new_io_error));
+            let data = try!(stmt.query_and_then(&[], |&row| {
+                let a = try!(row.get_checked(0).map_err(new_io_error));
+                let b = try!(row.get_checked(1).map_err(new_io_error));
+                Ok((a, b))
+            }).map_err(new_io_error)).collect::<Result<Vec<(String, String)>, _>>();
 
-            for Ok((name, url)) in data {
-                let retries = 3;
-                println!("Caching {} ...", name);
-                while retries > 0 {
-                    match self.cache_man_page(source, url, name) {
-                        Ok(_)  => break,
-                        Err(_) => {
-                            println!("Retrying ...");
-                            retries -= 1;
-                        },
+            if let Ok(d) = data {
+                for (name, url) in d {
+                    let retries = 3;
+                    println!("Caching {} ...", name);
+                    while retries > 0 {
+                        match self.cache_man_page(&source.to_string(), &url, &name) {
+                            Ok(_)  => break,
+                            Err(_) => {
+                                println!("Retrying ...");
+                                retries -= 1;
+                            },
+                        }
                     }
-                }
 
-                if retries == 0 {
-                    println!("Error caching {} ...", name);
-                    self.failure_count += 1;
-                } else {
-                    self.success_count += 1;
+                    if retries == 0 {
+                        println!("Error caching {} ...", name);
+                        update_add_cell_op(&self.failure_count, 1);
+                    } else {
+                        update_add_cell_op(&self.success_count, 1);
+                    }
                 }
             }
         }
 
-        println!("\n{} manual pages cached successfully.", self.success_count);
-        println!("{} manual pages failed to cache.", self.failure_count);
+        println!("\n{} manual pages cached successfully.", self.success_count.get().unwrap_or(-1));
+        println!("{} manual pages failed to cache.", self.failure_count.get().unwrap_or(-1));
         self.update_mandb(Some(false))
     }
 
@@ -206,7 +220,7 @@ impl Cppman {
             return Ok(());
         }
 
-        try!(fs::create_dir_all(environ.man_dir.join(source)));
+        try!(fs::create_dir_all(self.env.man_dir.join(source)));
 
         // There are often some errors in the HTML, for example: missing closing
         // tag. We use fixupHTML to fix this.
@@ -216,13 +230,13 @@ impl Cppman {
 
         let html2groff;
 
-        match source[..-4] {
+        match &source[..-4] {
             "cplusplus"    => html2groff = ::formatter::cplusplus::html2groff,
             "cppreference" => html2groff = ::formatter::cppreference::html2groff,
             _ => Err(new_io_error("wrong source")),
         }
 
-        let groff_text = html2groff(data, name);
+        let groff_text = html2groff(&data, name);
 
         let mut file = try!(File::create(outname));
         let mut enc = GzEncoder::new(file, Compression::Default);
@@ -251,28 +265,31 @@ impl Cppman {
         let stmt = try!(conn.prepare(&format!(
             "SELECT * FROM \"{}\" WHERE name \
              LIKE \"%{}%\" ORDER BY LENGTH(name)",
-            self.env.source, pattern)));
-        let selected = try!(stmt.query_map(&[], |&row| {
-            Ok((try!(row.get_checked(0).map_err(new_io_error)),
-                try!(row.get_checked(1).map_err(new_io_error))))
-        })).collect::<Vec<_>>();
+            self.env.source, pattern)).map_err(new_io_error));
+        let selected = try!(stmt.query_and_then(&[], |&row| {
+            let a = try!(row.get_checked(0).map_err(new_io_error));
+            let b = try!(row.get_checked(1).map_err(new_io_error));
+            Ok((a, b))
+        }).map_err(new_io_error)).collect::<Result<Vec<(String, String)>, _>>();
 
         let pat = try!(Regex::new(&format!("(?i)\\({}\\)", pattern))
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e)));
 
-        if selected.len() > 0 {
-            for Ok((name, url)) in selected {
-                if stdout_isatty() {
-                    println!("{}", pat.replace(name, "\\033[1;31m$1\\033[0m"));
-                } else {
-                    println!("{}", name);
+        if let Ok(sel) = selected {
+            if sel.len() > 0 {
+                for (name, url) in sel {
+                    if stdout_isatty() {
+                        println!("{}", pat.replace(&name, "\\033[1;31m$1\\033[0m"));
+                    } else {
+                        println!("{}", name);
+                    }
                 }
-            }
 
-            Ok(())
-        } else {
-            Err(io::Error::new(io::ErrorKind::NotFound, format!("{}: nothing appropriate", pattern)))
+                return Ok(());
+            }
         }
+
+        Err(io::Error::new(io::ErrorKind::NotFound, format!("{}: nothing appropriate", pattern)))
     }
 
     /// Update mandb.
@@ -304,6 +321,13 @@ fn get_normalized_page_name(name: &str) -> String {
     name.replace("/", "_")
 }
 
+
+fn update_add_cell_op<T>(cell: &Cell<Option<T>>, value: T)
+        where T: Copy + Default + AddAssign {
+    cell.set(cell.get()
+                 .and(Some(Default::default()))
+                 .map(|v: T| { v.add_assign(value); v }));
+}
 
 fn new_io_error<E>(error: E) -> io::Error
         where E: Into<Box<error::Error + Send + Sync>> {
