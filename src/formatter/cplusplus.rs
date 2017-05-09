@@ -1,6 +1,8 @@
+use std::io::Read;
 use std::ops::Deref;
 
 use regex::{Regex, Captures};
+use reqwest;
 use chrono::Local;
 
 use ::formatter::tableparser::parse_table;

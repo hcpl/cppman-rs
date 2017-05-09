@@ -11,6 +11,7 @@ extern crate rusqlite;
 extern crate isatty;
 extern crate flate2;
 extern crate reqwest;
+extern crate url;
 
 mod config;
 mod crawler;
@@ -19,7 +20,7 @@ mod formatter;
 mod util;
 
 use std::borrow::Borrow;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::error;
 use std::fs::{self, File};
@@ -33,9 +34,9 @@ use flate2::write::GzEncoder;
 use isatty::stdout_isatty;
 use regex::Regex;
 use rusqlite::Connection;
-//use url::Url;
+use url::Url;
 
-use crawler::Crawler;
+use crawler::{Crawler, Document};
 use environ::Environ;
 
 
@@ -66,7 +67,7 @@ struct Cppman {
     name_exceptions: Vec<String>,
     env: Environ,
 
-    db_conn: Option<Connection>,
+    db_conn: RefCell<Option<Connection>>,
 }
 
 impl Cppman {
@@ -87,7 +88,7 @@ impl Cppman {
             name_exceptions: vec!["http://www.cplusplus.com/reference/string/swap/".to_owned()],
             env: env.clone(),
 
-            db_conn: None,
+            db_conn: RefCell::new(None),
         }
     }
 
@@ -110,18 +111,28 @@ impl Cppman {
     fn rebuild_index(&self) {
         let _ = fs::remove_file(self.env.index_db_re);
 
+        /*let db_conn = try!(Connection::open(self.env.index_db_re).map_err(new_io_error));
+        self.db_conn.set(Some(db_conn));
+
+        db_conn.execute("CREATE TABLE \"cplusplus.com\" \
+                         (name VARCHAR(255), url VARCHAR(255))")
+        db_conn.execute("CREATE TABLE \"cppreference.com\" \
+                         (name VARCHAR(255), url VARCHAR(255))")*/
+
         unimplemented!();
     }
 
     /// callback to insert index
-    fn process_document(&self, doc: Document) {
-        if !self.blacklist.contains(doc.url) {
+    fn process_document(&self, doc: Document) -> io::Result<()> {
+        if !self.blacklist.contains(&doc.url) {
             println!("Indexing '{}' ...", doc.url);
-            let name = self.extract_name(doc.text);
+            let name = try!(self.extract_name(&doc.text));
             self.results.insert((name, doc.url));
         } else {
             println!("Skipping blacklisted page '{}' ...", doc.url);
         }
+
+        Ok(())
     }
 
     /// callback to insert index
@@ -137,7 +148,7 @@ impl Cppman {
         }
 
         for n in names {
-            let db_conn = try!(self.db_conn.ok_or(new_io_error("No Cppman::db_conn available!")));
+            let db_conn = try!(self.db_conn.borrow().ok_or(new_io_error("No Cppman::db_conn available!")));
 
             try!(db_conn.execute(
                 &format!("INSERT INTO \"{}\" (name, url) VALUES (?, ?)", table), &[&n.trim(), &url])
@@ -180,7 +191,7 @@ impl Cppman {
                 let a = try!(row.get_checked(0).map_err(new_io_error));
                 let b = try!(row.get_checked(1).map_err(new_io_error));
                 Ok((a, b))
-            }).map_err(new_io_error)).collect::<Result<Vec<(String, String)>, _>>();
+            }).map_err(new_io_error)).collect::<Result<Vec<(String, String)>, io::Error>>();
 
             if let Ok(d) = data {
                 for (name, url) in d {
@@ -228,12 +239,12 @@ impl Cppman {
         let resp = try!(reqwest::get(url).map_err(new_io_error));
         try!(resp.read_to_string(&mut data));
 
-        let html2groff;
+        let html2groff: fn(&str, &str) -> String;
 
         match &source[..-4] {
             "cplusplus"    => html2groff = ::formatter::cplusplus::html2groff,
             "cppreference" => html2groff = ::formatter::cppreference::html2groff,
-            _ => Err(new_io_error("wrong source")),
+            _ => return Err(new_io_error("wrong source")),
         }
 
         let groff_text = html2groff(&data, name);

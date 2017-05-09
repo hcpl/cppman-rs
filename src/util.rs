@@ -114,9 +114,9 @@ fn groff2man(data: &[u8]) -> String {
 }
 
 /// Convert HTML text from cplusplus.com to man pages.
-fn html2man(data: &[u8], formatter: T) -> String {
+fn html2man(data: &[u8], formatter: fn(&[u8]) -> String) -> String {
     let groff_text = formatter(data);
-    let man_text = groff2man(groff_text);
+    let man_text = groff2man(groff_text.as_bytes());
     man_text
 }
 
