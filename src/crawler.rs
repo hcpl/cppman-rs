@@ -1,11 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::Read;
-use std::thread;
 
+use ordermap::OrderMap;
 use regex::Regex;
 use reqwest::{self, Client, Response, StatusCode, IntoUrl};
-use reqwest::header::Headers;
-use url::{self, Url, Host};
+use reqwest::header::{Headers, ContentType};
+use url::{self, Url};
 
 
 pub struct Document<'a> {
@@ -17,11 +17,11 @@ pub struct Document<'a> {
 }
 
 impl<'a> Document<'a> {
-    pub fn new<T: IntoUrl>(response: Response, url: T) -> Document<'a> {
+    pub fn new<T: IntoUrl>(response:&'a mut Response, url: T) -> Document<'a> {
         let url =  url.into_url().unwrap();
 
         Document {
-            url: url,
+            url: url.clone(),
             query: url.query().unwrap_or("").to_owned(),
             status: *response.status(),
             text: {
@@ -45,28 +45,31 @@ enum FollowMode {
 
 pub struct Crawler {
     visited: HashSet<Url>,
-    targets: HashSet<Url>,
+    targets: OrderMap<Url, ()>,
 }
 
 impl Crawler {
     pub fn new() -> Crawler {
         Crawler {
             visited: HashSet::new(),
-            targets: HashSet::new(),
+            targets: OrderMap::new(),
         }
     }
 
-    pub fn crawl<T: IntoUrl>(&self, url: T) -> reqwest::Result<()> {
+    pub fn crawl<T: IntoUrl>(&mut self, url: T) -> reqwest::Result<()> {
         self.add_target(url);
 
         let client = try!(Client::new());
 
         while self.targets.len() > 0 {
-            let url = self.targets.take(self.targets.iter().next().unwrap()).unwrap();
+            let (url, _) = self.targets.pop().unwrap();
 
-            let res = try!(client.get(url).send());
+            let mut res = try!(client.get(url.clone()).send());
             if !res.status().is_success() {
-                continue;
+                let ct = res.headers().get::<ContentType>();
+                if !ct.is_some() || equal_content_types(ct.unwrap(), &ContentType(mime!(Text/Html))) {
+                    continue;
+                }
             }
 
             let mut text = String::new();
@@ -74,23 +77,27 @@ impl Crawler {
 
             self.visited.insert(url);
 
-            for link in LINK.captures_iter(&text).map(|cap| &cap[1]) {
-                self.add_target(link);
+            for cap in LINK.captures_iter(&text) {
+                self.add_target(&cap[1]);
             }
         }
 
         Ok(())
     }
 
-    fn add_target<T: IntoUrl>(&self, url: T) -> Result<(), url::ParseError> {
+    fn add_target<T: IntoUrl>(&mut self, url: T) -> Result<(), url::ParseError> {
         let url = try!(url.into_url());
 
         if !self.visited.contains(&url) {
-            self.targets.insert(url);
+            self.targets.insert(url, ());
         }
 
         Ok(())
     }
+}
+
+fn equal_content_types(ct1: &ContentType, ct2: &ContentType) -> bool {
+    ct1.0 == ct2.0
 }
 
 
