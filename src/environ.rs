@@ -2,8 +2,8 @@ use std::env;
 use std::fs::create_dir_all;
 use std::path::PathBuf;
 
-use get_lib_path;
-use config::{Config, Source, Pager};
+use ::get_lib_path;
+use ::config::{Config, Source, Pager};
 
 
 #[derive(Clone)]
@@ -25,7 +25,7 @@ pub struct Environ {
 }
 
 impl Environ {
-    fn new() -> Environ {
+    pub fn new() -> Environ {
         let home = env::home_dir().unwrap();
 
         let man_dir = home.join(".local/share/man/");
