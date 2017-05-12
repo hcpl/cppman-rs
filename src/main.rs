@@ -25,9 +25,14 @@ mod environ;
 mod formatter;
 mod util;
 
+use std::io::{self, Write};
 use std::path::PathBuf;
+use std::process;
 
 use clap::{App, Arg};
+
+use ::cppman::Cppman;
+use ::environ::Environ;
 
 
 pub fn get_lib_path(s: &str) -> PathBuf {
@@ -99,4 +104,38 @@ fn main() {
     let rebuild_index = matches.is_present("rebuild-index");
     let force_columns = value_t!(matches, "force-columns", usize).ok();
     let manpage = matches.value_of("manpage");
+
+    let env = Environ::new();
+
+    if cache_all {
+        let cm = Cppman::new(Some(force_update), None, &env);
+        cm.cache_all();
+        process::exit(0);
+    }
+
+    if clear_cache {
+        let cm = Cppman::new_default(&env);
+        cm.clear_cache();
+        process::exit(0);
+    }
+
+    if find_page.is_some() {
+        let cm = Cppman::new_default(&env);
+        cm.find(find_page.unwrap());
+        process::exit(0);
+    }
+
+    if rebuild_index {
+        let cm = Cppman::new_default(&env);
+        cm.rebuild_index();
+        process::exit(0);
+    }
+
+    if manpage.is_none() {
+        writeln!(&mut io::stderr(), "What manual page do you want?").expect("failed printing to stderr");
+        process::exit(1);
+    }
+
+    let cm = Cppman::new(Some(force_update), force_columns, &env);
+
 }

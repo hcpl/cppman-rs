@@ -138,53 +138,62 @@ impl Config {
     }
 
     pub fn pager(&self) -> Pager {
-        match self.config.borrow().get_from(Some("Settings"), "Pager") {
-            Some(s) => Pager::from(s),
-            None    => {
-                let pager = Pager::default();
-                self.set_pager(pager);
-                let _ = self.reload();
-                pager
-            },
-        }
+        self.try_pager().expect("Couldn't get pager")
     }
 
-    pub fn set_pager(&self, pager: Pager) {
+    pub fn try_pager(&self) -> io::Result<Pager> {
+        if let Some(s) = self.config.borrow().get_from(Some("Settings"), "Pager") {
+            return Ok(Pager::from(s));
+        }
+
+        let pager = Pager::default();
+        try!(self.try_set_pager(pager));
+        try!(self.reload());
+        Ok(pager)
+    }
+
+    pub fn try_set_pager(&self, pager: Pager) -> io::Result<()> {
         self.config.borrow_mut().set_to(Some("Settings"), "Pager".to_owned(), pager.to_string());
-        let _ = self.save();
+        self.save()
     }
 
     pub fn update_man_path(&self) -> bool {
-        match self.config.borrow().get_from(Some("Settings"), "UpdateManPath") {
-            Some(s) => UpdateManPath::from(s).0,
-            None    => {
-                let update_man_path = UpdateManPath::default();
-                self.set_update_man_path(update_man_path.0);
-                let _ = self.reload();
-                update_man_path.0
-            },
-        }
+        self.try_update_man_path().expect("Couldn't get update_man_path")
     }
 
-    pub fn set_update_man_path(&self, update_man_path: bool) {
+    pub fn try_update_man_path(&self) -> io::Result<bool> {
+        if let Some(s) = self.config.borrow().get_from(Some("Settings"), "UpdateManPath") {
+            return Ok(UpdateManPath::from(s).0);
+        }
+
+        let update_man_path = UpdateManPath::default();
+        try!(self.try_set_update_man_path(update_man_path.0));
+        try!(self.reload());
+        Ok(update_man_path.0)
+    }
+
+    pub fn try_set_update_man_path(&self, update_man_path: bool) -> io::Result<()> {
         self.config.borrow_mut().set_to(Some("Settings"), "UpdateManPath".to_owned(), update_man_path.to_string());
-        let _ = self.save();
+        self.save()
     }
 
-     pub fn source(&self) -> Source {
-        match self.config.borrow().get_from(Some("Settings"), "Source") {
-            Some(s) => Source::from(s),
-            None    => {
-                let source = Source::default();
-                self.set_source(source);
-                let _ = self.reload();
-                source
-            },
+    pub fn source(&self) -> Source {
+        self.try_source().expect("Couldn't get source")
+    }
+
+    pub fn try_source(&self) -> io::Result<Source> {
+        if let Some(s) = self.config.borrow().get_from(Some("Settings"), "Source") {
+            return Ok(Source::from(s));
         }
+
+        let source = Source::default();
+        try!(self.try_set_source(source));
+        try!(self.reload());
+        Ok(source)
     }
 
-    pub fn set_source(&self, source: Source) {
+    pub fn try_set_source(&self, source: Source) -> io::Result<()> {
         self.config.borrow_mut().set_to(Some("Settings"), "Source".to_owned(), source.to_string());
-        let _ = self.save();
+        self.save()
     }
 }
