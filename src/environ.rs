@@ -1,5 +1,6 @@
 use std::env;
-use std::fs::create_dir_all;
+use std::fs;
+use std::io;
 use std::path::PathBuf;
 
 use ::get_lib_path;
@@ -17,15 +18,19 @@ pub struct Environ {
     pub index_db_re: PathBuf,
     pub index_db: PathBuf,
 
-    pager: Pager,
-    pager_config: PathBuf,
-    pager_script: PathBuf,
+    pub pager: Pager,
+    pub pager_config: PathBuf,
+    pub pager_script: PathBuf,
 
     pub source: Source,
 }
 
 impl Environ {
     pub fn new() -> Environ {
+        Environ::try_new().expect("Coundn't create an Environ struct")
+    }
+
+    pub fn try_new() -> io::Result<Environ> {
         let home = env::home_dir().unwrap();
 
         let man_dir = home.join(".local/share/man/");
@@ -34,7 +39,7 @@ impl Environ {
 
         let config = Config::new_from_file(&config_file);
 
-        let _ = create_dir_all(&config_dir);
+        try!(fs::create_dir_all(&config_dir));
 
         let index_db_re = config_dir.join("index.db");
         let index_db = if index_db_re.exists() { 
@@ -49,7 +54,7 @@ impl Environ {
 
         let source = config.source();
 
-        Environ {
+        Ok(Environ {
             home: home,
             man_dir: man_dir,
             config_dir: config_dir,
@@ -61,6 +66,6 @@ impl Environ {
             pager_config: pager_config,
             pager_script: pager_script,
             source: source,
-        }
+        })
     }
 }

@@ -17,7 +17,7 @@ use url::Url;
 
 use crawler::{Crawler, Document};
 use environ::Environ;
-use util::new_io_error;
+use util::{new_io_error, get_width};
 
 
 lazy_static! {
@@ -84,6 +84,7 @@ impl Cppman {
 
     /// Rebuild index database from cplusplus.com and cppreference.com.
     pub fn rebuild_index(&self) {
+        // Continue even if it fails
         let _ = fs::remove_file(&self.env.index_db_re);
 
         /*let db_conn = try!(Connection::open(self.env.index_db_re).map_err(new_io_error));
@@ -125,9 +126,9 @@ impl Cppman {
         for n in names {
             match self.db_conn {
                 Some(ref db_conn) => {
-                    try!(db_conn.borrow().execute(
-                        &format!("INSERT INTO \"{}\" (name, url) VALUES (?, ?)", table), &[&n.trim(), &url])
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e)));
+                    try!(db_conn.borrow().execute(&format!(
+                        "INSERT INTO \"{}\" (name, url) VALUES (?, ?)", table), &[&n.trim(), &url])
+                        .map_err(new_io_error));
                 },
                 None => return Err(new_io_error("No Cppman::dn_conn available!")),
             }
@@ -202,7 +203,6 @@ impl Cppman {
 
     /// callback to cache new man page
     fn cache_man_page(&self, source: &str, url: &str, name: &str) -> io::Result<()> {
-        unimplemented!();
         // Skip if already exists, override if forced flag is true
         let outname = self.get_page_path(source, name);
         if outname.exists() && !self.forced {
@@ -231,6 +231,8 @@ impl Cppman {
         let mut enc = GzEncoder::new(file, Compression::Default);
         try!(enc.write_all(groff_text.as_bytes()));
         try!(enc.finish());
+
+        Ok(())
     }
 
     /// Clear all cache in man3
@@ -239,8 +241,70 @@ impl Cppman {
     }
 
     /// Call viewer.sh to view man page
-    fn man(&self, pattern: &str) {
-        unimplemented!();
+    fn man(&self, pattern: &str) -> io::Result<()> {
+        let avail = try!(fs::read_dir(self.env.man_dir.join(self.env.source.to_string())));
+        let avail = avail.collect::<Result<Vec<_>, _>>().unwrap_or(Vec::new()).iter().map(|d| d.path()).collect::<Vec<_>>();
+
+        if !self.env.index_db.exists() {
+            return Err(new_io_error("can't find index.db"));
+        }
+
+        let page_name;
+        let url;
+
+        {
+            let conn = try!(Connection::open(&self.env.index_db).map_err(new_io_error));
+
+            macro_rules! get_pair {
+                ($sql:expr) => {
+                    conn.query_row_and_then(&format!($sql, self.env.source, pattern), &[],
+                        |row| {
+                            let a: String = try!(row.get_checked(0));
+                            let b: String = try!(row.get_checked(1));
+                            Ok((a, b))
+                        }).map_err(|e: rusqlite::Error| new_io_error(e))
+                }
+            }
+
+            let pair = try!({
+                // Try direct match
+                get_pair!("SELECT name,url FROM \"{}\" \
+                          WHERE name='{}' ORDER BY LENGTH(name)").or(
+                    // Try standard library
+                    get_pair!("SELECT name,url FROM \"{}\" \
+                              WHERE name=\"std::{}\" ORDER BY LENGTH(name)").or(
+                        get_pair!("SELECT name,url FROM \"{}\" \
+                                  WHERE name LIKE \"%{}%\" ORDER BY LENGTH(name)"))).map_err(|_| {
+                            io::Error::new(
+                                io::ErrorKind::NotFound,
+                                format!("No manual entry for {}", pattern))
+                        })
+            });
+
+            page_name = pair.0;
+            url = pair.1;
+        }
+
+        let page_filename = get_normalized_page_name(&page_name);
+        if self.forced || !avail.contains(&(page_filename + ".3.gz").into()) {
+            self.cache_man_page(&self.env.source.to_string(), &url, &page_name);
+        }
+
+        let pager_type = if stdout_isatty() { self.env.pager.to_string() } else { "pipe".to_owned() };
+
+        // Call viewer
+        let columns = try!(self.force_columns.or(get_width())
+            .ok_or(new_io_error("Cannot determine width: either use --force-columns or switch to tty")));
+
+        Command::new("/bin/sh")
+                .arg(&self.env.pager_script)
+                .arg(pager_type)
+                .arg(self.get_page_path(&self.env.source.to_string(), &page_name))
+                .arg(columns.to_string())
+                .arg(&self.env.pager_config)
+                .arg(page_name)
+                .status()
+                .map(|_| ())
     }
 
     /// Find pages in database.
@@ -249,8 +313,7 @@ impl Cppman {
             return Err(io::Error::new(io::ErrorKind::NotFound, "can't find index.db"));
         }
 
-        let conn = try!(Connection::open(&self.env.index_db)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e)));
+        let conn = try!(Connection::open(&self.env.index_db).map_err(new_io_error));
         let mut stmt = try!(conn.prepare(&format!(
             "SELECT * FROM \"{}\" WHERE name \
              LIKE \"%{}%\" ORDER BY LENGTH(name)",
@@ -261,8 +324,7 @@ impl Cppman {
             Ok((a, b))
         }).map_err(new_io_error)).collect::<Result<Vec<(String, String)>, rusqlite::Error>>();
 
-        let pat = try!(Regex::new(&format!("(?i)\\({}\\)", pattern))
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e)));
+        let pat = try!(Regex::new(&format!("(?i)\\({}\\)", pattern)).map_err(new_io_error));
 
         if let Ok(sel) = selected {
             if sel.len() > 0 {

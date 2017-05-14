@@ -17,6 +17,7 @@ extern crate ordermap;
 extern crate mime;
 #[macro_use]
 extern crate clap;
+extern crate term_size;
 
 mod config;
 mod cppman;

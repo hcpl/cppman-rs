@@ -12,6 +12,7 @@ use std::os::unix;
 use std::os::windows;
 
 use select::document::Document;
+use term_size;
 
 use environ::Environ;
 
@@ -74,24 +75,14 @@ fn update_man3_link(env: &Environ) -> io::Result<()> {
     create_file_symlink(env.config.source().to_string(), &man3_path)
 }
 
-struct WinSize {
-    lines: c_ushort,
-    columns: c_ushort,
-    x: c_ushort,
-    y: c_ushort,
-}
-
-/// TODO: implement
 /// Get terminal width
-fn get_width() -> usize {
-    // Get terminal size
-    let ws = ..;
-    unimplemented!();
+pub fn get_width() -> Option<usize> {
+    term_size::dimensions_stdout().map(|(w, h)| w)
 }
 
 /// Read groff-formatted text and output man pages.
 fn groff2man(data: &[u8]) -> io::Result<String> {
-    let width = get_width();
+    let width = try!(get_width().ok_or(new_io_error("Cannot get width")));
 
     let cmd = format!("-t -Tascii -m man -rLL={}n -rLT={}n", width, width);
     let mut handle = Command::new("groff")
