@@ -2,9 +2,8 @@ use std::env;
 use std::error;
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufRead, Write};
-use std::os::raw::c_ushort;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Command;
 
 #[cfg(not(target_os = "windows"))]
 use std::os::unix;
@@ -18,7 +17,7 @@ use environ::Environ;
 
 
 /// Add ~/.local/share/man to $HOME/.manpath
-fn update_mandb_path(env: &Environ) -> io::Result<()> {
+pub fn update_mandb_path(env: &Environ) -> io::Result<()> {
     let home = env::home_dir().unwrap();
     let manpath_file = home.join(".manpath");
     let manpath = PathBuf::from(".local/share/man");
@@ -49,12 +48,14 @@ fn update_mandb_path(env: &Environ) -> io::Result<()> {
             .collect();
     }
 
-    lines.into_iter().map(|l| write!(f, "{}\n", l));
+    for line in lines {
+        try!(write!(f, "{}\n", line));
+    }
 
     Ok(())
 }
 
-fn update_man3_link(env: &Environ) -> io::Result<()> {
+pub fn update_man3_link(env: &Environ) -> io::Result<()> {
     let man3_path = env.man_dir.join("man3");
 
     if let Ok(metadata) = fs::symlink_metadata(&man3_path) {
@@ -63,7 +64,7 @@ fn update_man3_link(env: &Environ) -> io::Result<()> {
             if link_to == Path::new(&env.config.source().to_string()) {
                 return Ok(());
             } else {
-                fs::remove_file(&man3_path);
+                try!(fs::remove_file(&man3_path));
             }
         } else {
             panic!("Can't create link since `{}' already exists", man3_path.display());
@@ -77,14 +78,13 @@ fn update_man3_link(env: &Environ) -> io::Result<()> {
 
 /// Get terminal width
 pub fn get_width() -> Option<usize> {
-    term_size::dimensions_stdout().map(|(w, h)| w)
+    term_size::dimensions_stdout().map(|(w, _)| w)
 }
 
 /// Read groff-formatted text and output man pages.
 fn groff2man(data: &[u8]) -> io::Result<String> {
     let width = try!(get_width().ok_or(new_io_error("Cannot get width")));
 
-    let cmd = format!("-t -Tascii -m man -rLL={}n -rLT={}n", width, width);
     let mut handle = Command::new("groff")
                              .arg("-t")
                              .arg("-Tascii")
@@ -98,7 +98,7 @@ fn groff2man(data: &[u8]) -> io::Result<String> {
     {
         let stdin = handle.stdin.as_mut().expect("Couldn't get mutable Pipestream");
 
-        stdin.write_all(data);
+        try!(stdin.write_all(data));
     }
 
     let output = try!(handle.wait_with_output());
@@ -114,8 +114,10 @@ fn html2man(data: &[u8], formatter: fn(&[u8]) -> String) -> io::Result<String> {
     Ok(man_text)
 }
 
-pub fn fixup_html(data: &str) -> String {
-    Document::from(data).nth(0).unwrap().html()
+pub fn fixup_html(data: &str) -> io::Result<String> {
+    let doc = Document::from(data);
+    let node = try!(doc.nth(0).ok_or(new_io_error("No 0th node in Document")));
+    Ok(node.html())
 }
 
 #[cfg(not(target_os = "windows"))]

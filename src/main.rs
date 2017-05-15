@@ -26,12 +26,13 @@ mod environ;
 mod formatter;
 mod util;
 
-use std::io::{self, Write};
+use std::io::{self, Write, BufRead};
 use std::path::PathBuf;
 use std::process;
 
 use clap::{App, Arg};
 
+use ::config::{Source, Pager};
 use ::cppman::Cppman;
 use ::environ::Environ;
 
@@ -44,13 +45,14 @@ pub fn get_lib_path(s: &str) -> PathBuf {
 fn main() {
     let matches = App::new("cppman-rs")
         .version(crate_version!())
-        .about("Rust port of cppman, written in Python")
+        .about("Rust port of cppman, originally written in Python")
         .arg(Arg::with_name("source")
-                 .help("Select source, either 'cppreference.com' or \
-                        'cplusplus.com'.")
+                 .help(&format!("Select source, either 'cppreference.com' or \
+                                 'cplusplus.com'. [default: {}]",
+                                 Into::<&'static str>::into(Source::default())))
                  .short("s")
                  .long("source")
-                 .default_value("cplusplus.com"))
+                 .takes_value(true))
         .arg(Arg::with_name("cache-all")
                  .help("Cache all available man pages from cppreference.com \
                         and cplusplus.com to enable offline browsing.")
@@ -78,11 +80,12 @@ fn main() {
                  .short("m")
                  .long("use-mandb"))
         .arg(Arg::with_name("pager")
-                 .help("Select pager to use, accepts 'vim', 'less' or \
-                        'system'. 'system' uses $PAGER environment as pager.")
+                 .help(&format!("Select pager to use, accepts 'vim', 'less' or \
+                                'system'. 'system' uses $PAGER environment as pager. \
+                                [default: {}]", Into::<&'static str>::into(Pager::default())))
                  .short("p")
                  .long("pager")
-                 .default_value("vim"))
+                 .takes_value(true))
         .arg(Arg::with_name("rebuild-index")
                  .help("rebuild index database for the selected source, \
                         either 'cppreference.com' or 'cplusplus.com'.")
@@ -92,51 +95,91 @@ fn main() {
                  .help("Force terminal columns.")
                  .long("force-columns"))
         .arg(Arg::with_name("manpage")
-                 .help("Requested manpage"))
+                 .multiple(true)
+                 .help("Requested manpages"))
         .get_matches();
 
-    let source = matches.value_of("source").unwrap();
+    let source = matches.value_of("source");
     let cache_all = matches.is_present("cache-all");
     let clear_cache = matches.is_present("clear-cache");
     let find_page = matches.value_of("find-page");
     let force_update = matches.is_present("force-update");
-    let use_mandb = matches.is_present("use-mandb");
-    let pager = matches.value_of("pager").unwrap();
+    let use_mandb = matches.occurrences_of("use-mandb");
+    let pager = matches.value_of("pager");
     let rebuild_index = matches.is_present("rebuild-index");
     let force_columns = value_t!(matches, "force-columns", usize).ok();
-    let manpage = matches.value_of("manpage");
+    let manpage = matches.values_of("manpage");
 
     let env = Environ::new();
 
     if cache_all {
         let cm = Cppman::new(Some(force_update), None, &env);
-        cm.cache_all();
-        process::exit(0);
+        let _ = cm.cache_all().expect("Error while caching manpages");
     }
 
     if clear_cache {
         let cm = Cppman::new_default(&env);
-        cm.clear_cache();
-        process::exit(0);
+        let _ = cm.clear_cache().expect("Error while clearing the cache");
     }
 
     if find_page.is_some() {
         let cm = Cppman::new_default(&env);
-        cm.find(find_page.unwrap());
-        process::exit(0);
+        let _ = cm.find(find_page.unwrap()).expect("Error while finding a page");
+    }
+
+    if let Some(source) = source {
+        if let Ok(source) = Source::try_from(source) {
+            env.config.set_source(source);
+            println!("Source set to `{}'.", source);
+        } else {
+            writeln!(&mut io::stderr(), "Invalid value `{}' for option `--source'", source)
+                .expect("Failed printing to stderr");
+            process::exit(1);
+        }
+    }
+
+    if let Some(pager) = pager {
+        if let Ok(pager) = Pager::try_from(pager) {
+            env.config.set_pager(pager);
+            println!("Pager set to `{}'.", pager);
+        } else {
+            writeln!(&mut io::stderr(), "Invalid value `{}' for option `--pager'", pager)
+                .expect("Failed printing to stderr");
+            process::exit(1);
+        }
+    }
+
+    if use_mandb > 0 {
+        if !env.config.update_man_path() {
+            env.config.set_update_man_path(true);
+        }
+        if env.config.update_man_path() {
+            util::update_mandb_path(&env).expect("Cannot update mandb path");
+            util::update_man3_link(&env).expect("Cannot update man3 link");
+        }
     }
 
     if rebuild_index {
         let cm = Cppman::new_default(&env);
         cm.rebuild_index();
-        process::exit(0);
     }
 
     if manpage.is_none() {
-        writeln!(&mut io::stderr(), "What manual page do you want?").expect("failed printing to stderr");
+        writeln!(&mut io::stderr(), "What manual page do you want?").expect("Failed printing to stderr");
         process::exit(1);
     }
 
     let cm = Cppman::new(Some(force_update), force_columns, &env);
 
+    for (i, arg) in manpage.unwrap().enumerate() {
+        if i > 0 {
+            println!("--CppMan-- next: {}(3) [ view (return) | skip (Ctrl-D) \
+                      | quit (Ctrl-C) ]", arg);
+            let stdin = io::stdin();
+            // Ignore the actual input, we only need a user's Enter
+            let _ = stdin.lock().lines().next().expect("Cannot read a line from stdin");
+        }
+
+        cm.man(arg).expect("Error while printing the manpage");
+    }
 }

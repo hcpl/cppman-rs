@@ -139,7 +139,7 @@ impl Cppman {
 
     /// Cache all available man pages
     pub fn cache_all(&self) -> io::Result<()> {
-        println!("By default, cppman fetches pages on-the-fly if corresponding \
+        println!("By default, cppman-rs fetches pages on-the-fly if corresponding \
                   page is not found in the cache. The \"cache-all\" option is only \
                   useful if you want to view man pages offline. \
                   Caching all contents will take several minutes, \
@@ -147,8 +147,8 @@ impl Cppman {
 
         let mut respond = String::new();
         try!(io::stdin().read_line(&mut respond));
-        if !["y", "ye", "yes"].contains(&respond.to_lowercase().as_str()) {
-            return Err(io::Error::new(io::ErrorKind::Interrupted, ""));
+        if !["y", "ye", "yes"].contains(&respond.trim().to_lowercase().as_str()) {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "Not a positive answer"));
         }
 
         try!(fs::create_dir_all(&self.env.man_dir));
@@ -241,7 +241,7 @@ impl Cppman {
     }
 
     /// Call viewer.sh to view man page
-    fn man(&self, pattern: &str) -> io::Result<()> {
+    pub fn man(&self, pattern: &str) -> io::Result<()> {
         let avail = try!(fs::read_dir(self.env.man_dir.join(self.env.source.to_string())));
         let avail = avail.collect::<Result<Vec<_>, _>>().unwrap_or(Vec::new()).iter().map(|d| d.path()).collect::<Vec<_>>();
 

@@ -1,22 +1,22 @@
 use std::cell::RefCell;
 use std::fmt::{self, Display, Formatter};
+use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 
 use ini::Ini;
+
+use util::new_io_error;
 
 
 #[derive(Copy, Clone)] pub enum Pager { Vim, Less, System }
 #[derive(Copy, Clone)] struct UpdateManPath(bool);
 #[derive(Copy, Clone)] pub enum Source { CPlusPlus, CppReference }
 
+
 impl Display for Pager {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        match *self {
-            Pager::Vim    => write!(f, "{}", "vim"),
-            Pager::Less   => write!(f, "{}", "less"),
-            Pager::System => write!(f, "{}", "system"),
-        }
+        write!(f, "{}", Into::<&'static str>::into(*self))
     }
 }
 
@@ -28,23 +28,28 @@ impl Display for UpdateManPath {
 
 impl Display for Source {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        match *self {
-            Source::CPlusPlus    => write!(f, "{}", "cplusplus.com"),
-            Source::CppReference => write!(f, "{}", "cppreference.com"),
+        write!(f, "{}", Into::<&'static str>::into(*self))
+    }
+}
+
+
+impl Pager {
+    pub fn try_from(s: &str) -> Result<Pager, ()> {
+        match s {
+            "vim"    => Ok(Pager::Vim),
+            "less"   => Ok(Pager::Less),
+            "system" => Ok(Pager::System),
+            _        => Err(()),
         }
     }
 }
 
 impl<'a> From<&'a str> for Pager {
     fn from(s: &str) -> Pager {
-        match s {
-            "vim"    => Pager::Vim,
-            "less"   => Pager::Less,
-            "system" => Pager::System,
-            _        => Pager::default(),
-        }
+        Pager::try_from(s).unwrap_or_default()
     }
 }
+
 
 impl<'a> From<&'a str> for UpdateManPath {
     fn from(s: &str) -> UpdateManPath {
@@ -56,15 +61,43 @@ impl<'a> From<&'a str> for UpdateManPath {
     }
 }
 
-impl<'a> From<&'a str> for Source {
-    fn from(s: &str) -> Source {
+
+impl Source {
+    pub fn try_from(s: &str) -> Result<Source, ()> {
         match s {
-            "cplusplus.com"    => Source::CPlusPlus,
-            "cppreference.com" => Source::CppReference,
-            _                  => Source::default(),
+            "cplusplus.com"    => Ok(Source::CPlusPlus),
+            "cppreference.com" => Ok(Source::CppReference),
+            _                  => Err(()),
         }
     }
 }
+
+impl<'a> From<&'a str> for Source {
+    fn from(s: &str) -> Source {
+        Source::try_from(s).unwrap_or_default()
+    }
+}
+
+
+impl Into<&'static str> for Pager {
+    fn into(self) -> &'static str {
+        match self {
+            Pager::Vim    => "vim",
+            Pager::Less   => "less",
+            Pager::System => "system",
+        }
+    }
+}
+
+impl Into<&'static str> for Source {
+    fn into(self) -> &'static str {
+        match self {
+            Source::CPlusPlus    => "cplusplus.com",
+            Source::CppReference => "cppreference.com",
+        }
+    }
+}
+
 
 impl Default for Pager {
     fn default() -> Pager {
@@ -93,7 +126,7 @@ pub struct Config {
 
 impl Config {
     pub fn new_from_file<P: AsRef<Path>>(config_file: P) -> Config {
-        Config::new_try_from_file(config_file).unwrap()
+        Config::new_try_from_file(config_file).expect("Cannot create a Config struct")
     }
 
     pub fn new_try_from_file<P: AsRef<Path>>(config_file: P) -> io::Result<Config> {
@@ -115,7 +148,12 @@ impl Config {
               .set("UpdateManPath", UpdateManPath::default().to_string())
               .set("Pager", Pager::default().to_string());
 
-        match config.write_to_file(&config_file) {
+        let dir = try!(config_file.as_ref().parent()
+            .ok_or(new_io_error("Not a filename since it does not have a parent path")));
+        try!(fs::create_dir_all(dir));
+        let mut file = try!(File::create(&config_file));
+
+        match config.write_to(&mut file) {
             Ok(_)  => Ok(Config {
                 config_file: config_file.as_ref().to_owned(),
                 config: RefCell::new(config),
@@ -141,6 +179,10 @@ impl Config {
         self.try_pager().expect("Couldn't get pager")
     }
 
+    pub fn set_pager(&self, pager: Pager) {
+        self.try_set_pager(pager).expect("Couldn't set pager")
+    }
+
     pub fn try_pager(&self) -> io::Result<Pager> {
         if let Some(s) = self.config.borrow().get_from(Some("Settings"), "Pager") {
             return Ok(Pager::from(s));
@@ -161,6 +203,10 @@ impl Config {
         self.try_update_man_path().expect("Couldn't get update_man_path")
     }
 
+    pub fn set_update_man_path(&self, update_man_path: bool) {
+        self.try_set_update_man_path(update_man_path).expect("Couldn't set update_man_path")
+    }
+
     pub fn try_update_man_path(&self) -> io::Result<bool> {
         if let Some(s) = self.config.borrow().get_from(Some("Settings"), "UpdateManPath") {
             return Ok(UpdateManPath::from(s).0);
@@ -179,6 +225,10 @@ impl Config {
 
     pub fn source(&self) -> Source {
         self.try_source().expect("Couldn't get source")
+    }
+
+    pub fn set_source(&self, source: Source) {
+        self.try_set_source(source).expect("Couldn't set source")
     }
 
     pub fn try_source(&self) -> io::Result<Source> {

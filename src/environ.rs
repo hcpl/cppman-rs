@@ -34,22 +34,22 @@ impl Environ {
         let home = env::home_dir().unwrap();
 
         let man_dir = home.join(".local/share/man/");
-        let config_dir = home.join(".config/cppman/");
-        let config_file = config_dir.join("cppman.cfg");
+        let config_dir = home.join(".config/cppman-rs/");
+        let config_file = config_dir.join("cppman-rs.cfg");
 
         let config = Config::new_from_file(&config_file);
 
         try!(fs::create_dir_all(&config_dir));
 
         let index_db_re = config_dir.join("index.db");
-        let index_db = if index_db_re.exists() { 
+        let index_db = if index_db_re.exists() {
             index_db_re.clone()
         } else {
             get_lib_path("index.db")
         };
 
         let pager = config.pager();
-        let pager_config = get_lib_path("cppman.vim");
+        let pager_config = get_lib_path("cppman-rs.vim");
         let pager_script = get_lib_path("pager.sh");
 
         let source = config.source();
