@@ -15,19 +15,19 @@ use util::new_io_error;
 
 
 impl Display for Pager {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", Into::<&'static str>::into(*self))
     }
 }
 
 impl Display for UpdateManPath {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", self.0.to_string())
     }
 }
 
 impl Display for Source {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", Into::<&'static str>::into(*self))
     }
 }
@@ -162,6 +162,7 @@ impl Config {
         }
     }
 
+
     /// Store config back to file.
     fn save(&self) -> io::Result<()> {
         self.config.borrow().write_to_file(&self.config_file)
@@ -174,6 +175,7 @@ impl Config {
             Err(e)  => Err(io::Error::new(io::ErrorKind::Other, e)),
         }
     }
+
 
     pub fn pager(&self) -> Pager {
         self.try_pager().expect("Couldn't get pager")
@@ -199,6 +201,7 @@ impl Config {
         self.save()
     }
 
+
     pub fn update_man_path(&self) -> bool {
         self.try_update_man_path().expect("Couldn't get update_man_path")
     }
@@ -222,6 +225,7 @@ impl Config {
         self.config.borrow_mut().set_to(Some("Settings"), "UpdateManPath".to_owned(), update_man_path.to_string());
         self.save()
     }
+
 
     pub fn source(&self) -> Source {
         self.try_source().expect("Couldn't get source")
