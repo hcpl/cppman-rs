@@ -18,11 +18,14 @@ extern crate mime;
 #[macro_use]
 extern crate clap;
 extern crate term_size;
+#[macro_use]
+extern crate error_chain;
 
 mod config;
 mod cppman;
 mod crawler;
 mod environ;
+mod errors;
 mod formatter;
 mod util;
 

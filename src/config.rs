@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use ini::Ini;
 
+use ::errors;
 use util::new_io_error;
 
 
@@ -34,12 +35,12 @@ impl Display for Source {
 
 
 impl Pager {
-    pub fn try_from(s: &str) -> Result<Pager, ()> {
+    pub fn try_from(s: &str) -> errors::Result<Pager> {
         match s {
             "vim"    => Ok(Pager::Vim),
             "less"   => Ok(Pager::Less),
             "system" => Ok(Pager::System),
-            _        => Err(()),
+            _        => Err(errors::ErrorKind::ParsePager(s.to_owned()).into()),
         }
     }
 }
@@ -63,11 +64,11 @@ impl<'a> From<&'a str> for UpdateManPath {
 
 
 impl Source {
-    pub fn try_from(s: &str) -> Result<Source, ()> {
+    pub fn try_from(s: &str) -> errors::Result<Source> {
         match s {
             "cplusplus.com"    => Ok(Source::CPlusPlus),
             "cppreference.com" => Ok(Source::CppReference),
-            _                  => Err(()),
+            _                  => Err(errors::ErrorKind::ParseSource(s.to_owned()).into()),
         }
     }
 }
@@ -129,7 +130,7 @@ impl Config {
         Config::new_try_from_file(config_file).expect("Cannot create a Config struct")
     }
 
-    pub fn new_try_from_file<P: AsRef<Path>>(config_file: P) -> io::Result<Config> {
+    pub fn new_try_from_file<P: AsRef<Path>>(config_file: P) -> errors::Result<Config> {
         if let Ok(ini) = Ini::load_from_file(&config_file) {
             Ok(Config {
                 config_file: config_file.as_ref().to_owned(),
@@ -141,7 +142,7 @@ impl Config {
     }
 
     /// Get default config.
-    fn default_config<P: AsRef<Path>>(config_file: P) -> io::Result<Config> {
+    fn default_config<P: AsRef<Path>>(config_file: P) -> errors::Result<Config> {
         let mut config = Ini::new();
         config.with_section(Some("Settings".to_owned()))
               .set("Source", Source::default().to_string())
@@ -158,21 +159,21 @@ impl Config {
                 config_file: config_file.as_ref().to_owned(),
                 config: RefCell::new(config),
             }),
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         }
     }
 
 
     /// Store config back to file.
-    fn save(&self) -> io::Result<()> {
-        self.config.borrow().write_to_file(&self.config_file)
+    fn save(&self) -> errors::Result<()> {
+        Ok(try!(self.config.borrow().write_to_file(&self.config_file)))
     }
 
     /// Reload config from file.
-    fn reload(&self) -> io::Result<()> {
+    fn reload(&self) -> errors::Result<()> {
         match Ini::load_from_file(&self.config_file) {
             Ok(ini) => { *self.config.borrow_mut() = ini; Ok(()) },
-            Err(e)  => Err(io::Error::new(io::ErrorKind::Other, e)),
+            Err(e)  => Err(e.into()),
         }
     }
 
@@ -185,7 +186,7 @@ impl Config {
         self.try_set_pager(pager).expect("Couldn't set pager")
     }
 
-    pub fn try_pager(&self) -> io::Result<Pager> {
+    pub fn try_pager(&self) -> errors::Result<Pager> {
         if let Some(s) = self.config.borrow().get_from(Some("Settings"), "Pager") {
             return Ok(Pager::from(s));
         }
@@ -196,7 +197,7 @@ impl Config {
         Ok(pager)
     }
 
-    pub fn try_set_pager(&self, pager: Pager) -> io::Result<()> {
+    pub fn try_set_pager(&self, pager: Pager) -> errors::Result<()> {
         self.config.borrow_mut().set_to(Some("Settings"), "Pager".to_owned(), pager.to_string());
         self.save()
     }
@@ -210,7 +211,7 @@ impl Config {
         self.try_set_update_man_path(update_man_path).expect("Couldn't set update_man_path")
     }
 
-    pub fn try_update_man_path(&self) -> io::Result<bool> {
+    pub fn try_update_man_path(&self) -> errors::Result<bool> {
         if let Some(s) = self.config.borrow().get_from(Some("Settings"), "UpdateManPath") {
             return Ok(UpdateManPath::from(s).0);
         }
@@ -221,7 +222,7 @@ impl Config {
         Ok(update_man_path.0)
     }
 
-    pub fn try_set_update_man_path(&self, update_man_path: bool) -> io::Result<()> {
+    pub fn try_set_update_man_path(&self, update_man_path: bool) -> errors::Result<()> {
         self.config.borrow_mut().set_to(Some("Settings"), "UpdateManPath".to_owned(), update_man_path.to_string());
         self.save()
     }
@@ -235,7 +236,7 @@ impl Config {
         self.try_set_source(source).expect("Couldn't set source")
     }
 
-    pub fn try_source(&self) -> io::Result<Source> {
+    pub fn try_source(&self) -> errors::Result<Source> {
         if let Some(s) = self.config.borrow().get_from(Some("Settings"), "Source") {
             return Ok(Source::from(s));
         }
@@ -246,7 +247,7 @@ impl Config {
         Ok(source)
     }
 
-    pub fn try_set_source(&self, source: Source) -> io::Result<()> {
+    pub fn try_set_source(&self, source: Source) -> errors::Result<()> {
         self.config.borrow_mut().set_to(Some("Settings"), "Source".to_owned(), source.to_string());
         self.save()
     }
