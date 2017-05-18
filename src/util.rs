@@ -13,11 +13,12 @@ use std::os::windows;
 use select::document::Document;
 use term_size;
 
-use environ::Environ;
+use ::environ::Environ;
+use ::errors;
 
 
 /// Add ~/.local/share/man to $HOME/.manpath
-pub fn update_mandb_path(env: &Environ) -> io::Result<()> {
+pub fn update_mandb_path(env: &Environ) -> errors::Result<()> {
     let home = env::home_dir().unwrap();
     let manpath_file = home.join(".manpath");
     let manpath = PathBuf::from(".local/share/man");
@@ -55,7 +56,7 @@ pub fn update_mandb_path(env: &Environ) -> io::Result<()> {
     Ok(())
 }
 
-pub fn update_man3_link(env: &Environ) -> io::Result<()> {
+pub fn update_man3_link(env: &Environ) -> errors::Result<()> {
     let man3_path = env.man_dir.join("man3");
 
     if let Ok(metadata) = fs::symlink_metadata(&man3_path) {
@@ -77,13 +78,13 @@ pub fn update_man3_link(env: &Environ) -> io::Result<()> {
 }
 
 /// Get terminal width
-pub fn get_width() -> Option<usize> {
-    term_size::dimensions_stdout().map(|(w, _)| w)
+pub fn get_width() -> errors::Result<usize> {
+    term_size::dimensions_stdout().map(|(w, _)| w).ok_or(errors::ErrorKind::StdoutNoTermWidth.into())
 }
 
 /// Read groff-formatted text and output man pages.
-fn groff2man(data: &[u8]) -> io::Result<String> {
-    let width = try!(get_width().ok_or(new_io_error("Cannot get width")));
+fn groff2man(data: &[u8]) -> errors::Result<String> {
+    let width = try!(get_width());
 
     let mut handle = Command::new("groff")
                              .arg("-t")
@@ -102,32 +103,32 @@ fn groff2man(data: &[u8]) -> io::Result<String> {
     }
 
     let output = try!(handle.wait_with_output());
-    let man_text = try!(String::from_utf8(output.stdout).map_err(new_io_error));
+    let man_text = try!(String::from_utf8(output.stdout));
 
     Ok(man_text)
 }
 
 /// Convert HTML text from cplusplus.com to man pages.
-fn html2man(data: &[u8], formatter: fn(&[u8]) -> String) -> io::Result<String> {
+fn html2man(data: &[u8], formatter: fn(&[u8]) -> String) -> errors::Result<String> {
     let groff_text = formatter(data);
     let man_text = try!(groff2man(groff_text.as_bytes()));
     Ok(man_text)
 }
 
-pub fn fixup_html(data: &str) -> io::Result<String> {
+pub fn fixup_html(data: &str) -> errors::Result<String> {
     let doc = Document::from(data);
     let node = try!(doc.nth(0).ok_or(new_io_error("No 0th node in Document")));
     Ok(node.html())
 }
 
 #[cfg(not(target_os = "windows"))]
-fn create_file_symlink<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> io::Result<()> {
-    unix::fs::symlink(src, dst)
+fn create_file_symlink<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> errors::Result<()> {
+    Ok(try!(unix::fs::symlink(src, dst)))
 }
 
 #[cfg(target_os = "windows")]
-fn create_file_symlink<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> io::Result<()> {
-    windows::fs::symlink_file(src, dst)
+fn create_file_symlink<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> errors::Result<()> {
+    Ok(try!(windows::fs::symlink_file(src, dst)))
 }
 
 pub fn new_io_error<E>(error: E) -> io::Error

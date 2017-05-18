@@ -15,9 +15,10 @@ use reqwest;
 use rusqlite::{self, Connection};
 use url::Url;
 
-use crawler::{Crawler, Document};
-use environ::Environ;
-use util::{new_io_error, get_width};
+use ::crawler::{Crawler, Document};
+use ::environ::Environ;
+use ::errors;
+use ::util::{new_io_error, get_width};
 
 
 lazy_static! {
@@ -241,12 +242,12 @@ impl Cppman {
     }
 
     /// Call viewer.sh to view man page
-    pub fn man(&self, pattern: &str) -> io::Result<()> {
+    pub fn man(&self, pattern: &str) -> errors::Result<()> {
         let avail = try!(fs::read_dir(self.env.man_dir.join(self.env.source.to_string())));
         let avail = avail.collect::<Result<Vec<_>, _>>().unwrap_or(Vec::new()).iter().map(|d| d.path()).collect::<Vec<_>>();
 
         if !self.env.index_db.exists() {
-            return Err(new_io_error("can't find index.db"));
+            return Err(errors::ErrorKind::NoIndexDb.into());
         }
 
         let page_name;
@@ -293,7 +294,7 @@ impl Cppman {
         let pager_type = if stdout_isatty() { self.env.pager.to_string() } else { "pipe".to_owned() };
 
         // Call viewer
-        let columns = try!(self.force_columns.or(get_width())
+        let columns = try!(self.force_columns.or(Some(try!(get_width())))
             .ok_or(new_io_error("Cannot determine width: either use --force-columns or switch to tty")));
 
         Command::new("/bin/sh")
@@ -305,6 +306,7 @@ impl Cppman {
                 .arg(page_name)
                 .status()
                 .map(|_| ())
+                .map_err(Into::into)
     }
 
     /// Find pages in database.

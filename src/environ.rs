@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use ::get_lib_path;
 use ::config::{Config, Source, Pager};
+use ::errors;
 
 
 #[derive(Clone)]
@@ -30,7 +31,7 @@ impl Environ {
         Environ::try_new().expect("Coundn't create an Environ struct")
     }
 
-    pub fn try_new() -> io::Result<Environ> {
+    pub fn try_new() -> errors::Result<Environ> {
         let home = env::home_dir().unwrap();
 
         let man_dir = home.join(".local/share/man/");
