@@ -69,9 +69,9 @@ impl Cppman {
     }
 
     /// Extract man page name from web page.
-    fn extract_name(&self, data: &str) -> io::Result<String> {
+    fn extract_name(&self, data: &str) -> errors::Result<String> {
         H1_INNER_HTML.captures(data)
-            .ok_or(new_io_error("No captures found at all"))
+            .ok_or(errors::ErrorKind::NoCaptures.into())
             .and_then(|cap| {
                 cap.get(1).map(|m| {
                     let mut name = m.as_str().to_owned();
@@ -79,7 +79,7 @@ impl Cppman {
                     name = GREATER_THAN.replace(&name, ">").into_owned();
                     name = LESSER_THAN.replace(&name, ">").into_owned();
                     name
-                }).ok_or(new_io_error("No capture #1 found"))
+                }).ok_or(errors::ErrorKind::NoCapturesIndex(1).into())
             })
     }
 
@@ -100,7 +100,7 @@ impl Cppman {
     }
 
     /// callback to insert index
-    fn process_document(&mut self, doc: Document) -> io::Result<()> {
+    fn process_document(&mut self, doc: Document) -> errors::Result<()> {
         if !self.blacklist.contains(&doc.url) {
             println!("Indexing '{}' ...", doc.url);
             let name = try!(self.extract_name(&doc.text));
@@ -113,7 +113,7 @@ impl Cppman {
     }
 
     /// callback to insert index
-    fn insert_index(&self, table: &str, name: &str, url: &str) -> io::Result<()> {
+    fn insert_index(&self, table: &str, name: &str, url: &str) -> errors::Result<()> {
         let mut names = name.split(',').map(str::to_owned).collect::<Vec<_>>();
 
         if names.len() > 1 {
@@ -128,10 +128,9 @@ impl Cppman {
             match self.db_conn {
                 Some(ref db_conn) => {
                     try!(db_conn.borrow().execute(&format!(
-                        "INSERT INTO \"{}\" (name, url) VALUES (?, ?)", table), &[&n.trim(), &url])
-                        .map_err(new_io_error));
+                        "INSERT INTO \"{}\" (name, url) VALUES (?, ?)", table), &[&n.trim(), &url]));
                 },
-                None => return Err(new_io_error("No Cppman::dn_conn available!")),
+                None => return Err(errors::ErrorKind::NoDbConn.into()),
             }
         }
 
@@ -139,7 +138,7 @@ impl Cppman {
     }
 
     /// Cache all available man pages
-    pub fn cache_all(&self) -> io::Result<()> {
+    pub fn cache_all(&self) -> errors::Result<()> {
         println!("By default, cppman-rs fetches pages on-the-fly if corresponding \
                   page is not found in the cache. The \"cache-all\" option is only \
                   useful if you want to view man pages offline. \
@@ -149,7 +148,7 @@ impl Cppman {
         let mut respond = String::new();
         try!(io::stdin().read_line(&mut respond));
         if !["y", "ye", "yes"].contains(&respond.trim().to_lowercase().as_str()) {
-            return Err(io::Error::new(io::ErrorKind::Interrupted, "Not a positive answer"));
+            return Err(errors::ErrorKind::Interrupted("Not a positive answer".to_owned()).into());
         }
 
         try!(fs::create_dir_all(&self.env.man_dir));
@@ -158,20 +157,20 @@ impl Cppman {
         self.failure_count.set(Some(0));
 
         if !self.env.index_db.exists() {
-            return Err(new_io_error("can't find index.db"));
+            return Err(errors::ErrorKind::NoIndexDb.into());
         }
 
         {
-            let conn = try!(Connection::open(&self.env.index_db).map_err(new_io_error));
+            let conn = try!(Connection::open(&self.env.index_db));
 
             let source = self.env.config.source();
             println!("Caching manpages from {} ...", source);
-            let mut stmt = try!(conn.prepare(&format!("SELECT * FROM \"{}\"", source)).map_err(new_io_error));
+            let mut stmt = try!(conn.prepare(&format!("SELECT * FROM \"{}\"", source)));
             let data = try!(stmt.query_and_then(&[], |&ref row| {
                 let a = try!(row.get_checked(0));
                 let b = try!(row.get_checked(1));
                 Ok((a, b))
-            }).map_err(new_io_error)).collect::<Result<Vec<(String, String)>, rusqlite::Error>>();
+            })).collect::<Result<Vec<(String, String)>, rusqlite::Error>>();
 
             if let Ok(d) = data {
                 for (name, url) in d {
@@ -203,7 +202,7 @@ impl Cppman {
     }
 
     /// callback to cache new man page
-    fn cache_man_page(&self, source: &str, url: &str, name: &str) -> io::Result<()> {
+    fn cache_man_page(&self, source: &str, url: &str, name: &str) -> errors::Result<()> {
         // Skip if already exists, override if forced flag is true
         let outname = self.get_page_path(source, name);
         if outname.exists() && !self.forced {
@@ -215,7 +214,7 @@ impl Cppman {
         // There are often some errors in the HTML, for example: missing closing
         // tag. We use fixupHTML to fix this.
         let mut data = String::new();
-        let mut resp = try!(reqwest::get(url).map_err(new_io_error));
+        let mut resp = try!(reqwest::get(url));
         try!(resp.read_to_string(&mut data));
 
         let html2groff: fn(&str, &str) -> String;
@@ -223,7 +222,7 @@ impl Cppman {
         match &source[..source.len()-4] {
             "cplusplus"    => html2groff = ::formatter::cplusplus::html2groff,
             "cppreference" => html2groff = ::formatter::cppreference::html2groff,
-            _ => return Err(new_io_error("wrong source")),
+            s => return Err(errors::ErrorKind::WrongSource(s.to_owned()).into()),
         }
 
         let groff_text = html2groff(&data, name);
@@ -237,8 +236,8 @@ impl Cppman {
     }
 
     /// Clear all cache in man3
-    pub fn clear_cache(&self) -> io::Result<()> {
-        fs::remove_dir_all(&self.env.man_dir)
+    pub fn clear_cache(&self) -> errors::Result<()> {
+        fs::remove_dir_all(&self.env.man_dir).map_err(Into::into)
     }
 
     /// Call viewer.sh to view man page
@@ -254,7 +253,7 @@ impl Cppman {
         let url;
 
         {
-            let conn = try!(Connection::open(&self.env.index_db).map_err(new_io_error));
+            let conn = try!(Connection::open(&self.env.index_db));
 
             macro_rules! get_pair {
                 ($sql:expr) => {
@@ -263,7 +262,7 @@ impl Cppman {
                             let a: String = try!(row.get_checked(0));
                             let b: String = try!(row.get_checked(1));
                             Ok((a, b))
-                        }).map_err(|e: rusqlite::Error| new_io_error(e))
+                        }).map_err(|e: rusqlite::Error| e)
                 }
             }
 
@@ -310,23 +309,23 @@ impl Cppman {
     }
 
     /// Find pages in database.
-    pub fn find(&self, pattern: &str) -> io::Result<()> {
+    pub fn find(&self, pattern: &str) -> errors::Result<()> {
         if !self.env.index_db.exists() {
-            return Err(io::Error::new(io::ErrorKind::NotFound, "can't find index.db"));
+            return Err(errors::ErrorKind::NoIndexDb.into());
         }
 
-        let conn = try!(Connection::open(&self.env.index_db).map_err(new_io_error));
+        let conn = try!(Connection::open(&self.env.index_db));
         let mut stmt = try!(conn.prepare(&format!(
             "SELECT * FROM \"{}\" WHERE name \
              LIKE \"%{}%\" ORDER BY LENGTH(name)",
-            self.env.source, pattern)).map_err(new_io_error));
+            self.env.source, pattern)));
         let selected = try!(stmt.query_and_then(&[], |&ref row| {
             let a = try!(row.get_checked(0));
             let b = try!(row.get_checked(1));
             Ok((a, b))
-        }).map_err(new_io_error)).collect::<Result<Vec<(String, String)>, rusqlite::Error>>();
+        })).collect::<Result<Vec<(String, String)>, rusqlite::Error>>();
 
-        let pat = try!(Regex::new(&format!("(?i)\\({}\\)", pattern)).map_err(new_io_error));
+        let pat = try!(Regex::new(&format!("(?i)\\({}\\)", pattern)));
 
         if let Ok(sel) = selected {
             if sel.len() > 0 {
@@ -342,11 +341,11 @@ impl Cppman {
             }
         }
 
-        Err(io::Error::new(io::ErrorKind::NotFound, format!("{}: nothing appropriate", pattern)))
+        Err(errors::ErrorKind::NoMatch(pattern.to_owned()).into())
     }
 
     /// Update mandb.
-    fn update_mandb(&self, quiet: Option<bool>) -> io::Result<()> {
+    fn update_mandb(&self, quiet: Option<bool>) -> errors::Result<()> {
         let quiet = quiet.unwrap_or(true);
 
         if !self.env.config.update_man_path() {
@@ -360,7 +359,7 @@ impl Cppman {
             cmd.arg("-q");
         }
 
-        cmd.status().map(|_| ())
+        cmd.status().map(|_| ()).map_err(Into::into)
     }
 
     fn get_page_path(&self, source: &str, name: &str) -> PathBuf {

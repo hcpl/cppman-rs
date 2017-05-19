@@ -24,9 +24,39 @@ error_chain! {
             display("error while determining width of stdout terminal")
         }
 
+        NoCaptures {
+            description("no captures foundi at all")
+            display("no captures found at all")
+        }
+
+        NoCapturesIndex(index: usize) {
+            description("no captures found at index")
+            display("no captures found at index {}", index)
+        }
+
         NoIndexDb {
             description("can't find index.db")
             display("can't find index.db")
+        }
+
+        NoDbConn {
+            description("no Cppman::db_conn available!")
+            display("no Cppman::db_conn available!")
+        }
+
+        Interrupted(msg: String) {
+            description("keyboard interrupt")
+            display("keyboard interrupt: '{}'", msg)
+        }
+
+        NoMatch(pattern: String) {
+            description("no match")
+            display("no match: '{}'", pattern)
+        }
+
+        WrongSource(source: String) {
+            description("wrong source")
+            display("wrong source: '{}'", source)
         }
     }
 }

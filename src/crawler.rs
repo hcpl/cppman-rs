@@ -7,6 +7,8 @@ use reqwest::{self, Client, Response, StatusCode, IntoUrl};
 use reqwest::header::{Headers, ContentType};
 use url::{self, Url};
 
+use ::errors;
+
 
 pub struct Document<'a> {
     pub url: Url,
@@ -56,7 +58,7 @@ impl Crawler {
         }
     }
 
-    pub fn crawl<T: IntoUrl>(&mut self, url: T) -> reqwest::Result<()> {
+    pub fn crawl<T: IntoUrl>(&mut self, url: T) -> errors::Result<()> {
         self.add_target(url);
 
         let client = try!(Client::new());

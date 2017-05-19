@@ -1,3 +1,5 @@
+#![recursion_limit = "128"]
+
 extern crate either;
 extern crate ini;
 extern crate regex;
