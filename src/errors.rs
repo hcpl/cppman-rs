@@ -1,3 +1,6 @@
+use std::path::PathBuf;
+
+
 error_chain! {
     foreign_links {
         FromUtf8(::std::string::FromUtf8Error);
@@ -57,6 +60,21 @@ error_chain! {
         WrongSource(source: String) {
             description("wrong source")
             display("wrong source: '{}'", source)
+        }
+
+        Abort(msg: String) {
+            description("critical error, must abort")
+            display("{}", msg)
+        }
+
+        NodeNotPresent(index: usize) {
+            description("node not present in document")
+            display("node #{} not present in document", index)
+        }
+
+        NotFilename(filename: PathBuf, msg: String) {
+            description("not a filename")
+            display("not a filename: '{:?}' ({})", filename, msg)
         }
     }
 }

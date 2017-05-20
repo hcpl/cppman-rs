@@ -18,7 +18,7 @@ use url::Url;
 use ::crawler::{Crawler, Document};
 use ::environ::Environ;
 use ::errors;
-use ::util::{new_io_error, get_width};
+use ::util::get_width;
 
 
 lazy_static! {
@@ -118,8 +118,8 @@ impl Cppman {
 
         if names.len() > 1 {
             if let Some(caps) = OPERATOR.captures(&names[0].clone()) {
-                let prefix = try!(caps.get(1).ok_or(new_io_error("No capture $1"))).as_str().to_owned();
-                names[0] = try!(caps.get(2).ok_or(new_io_error("No capture $2"))).as_str().to_owned();
+                let prefix = try!(caps.get(1).ok_or(errors::ErrorKind::NoCapturesIndex(1))).as_str().to_owned();
+                names[0] = try!(caps.get(2).ok_or(errors::ErrorKind::NoCapturesIndex(2))).as_str().to_owned();
                 names = names.into_iter().map(|n| prefix.to_owned() + &n).collect::<Vec<_>>();
             }
         }
@@ -294,7 +294,8 @@ impl Cppman {
 
         // Call viewer
         let columns = try!(self.force_columns.or(Some(try!(get_width())))
-            .ok_or(new_io_error("Cannot determine width: either use --force-columns or switch to tty")));
+            .ok_or(errors::ErrorKind::Abort(
+                "Cannot determine width: either use --force-columns or switch to tty".to_owned())));
 
         Command::new("/bin/sh")
                 .arg(&self.env.pager_script)

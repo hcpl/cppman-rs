@@ -117,21 +117,16 @@ fn html2man(data: &[u8], formatter: fn(&[u8]) -> String) -> errors::Result<Strin
 
 pub fn fixup_html(data: &str) -> errors::Result<String> {
     let doc = Document::from(data);
-    let node = try!(doc.nth(0).ok_or(new_io_error("No 0th node in Document")));
+    let node = try!(doc.nth(0).ok_or(errors::ErrorKind::NodeNotPresent(0)));
     Ok(node.html())
 }
 
 #[cfg(not(target_os = "windows"))]
 fn create_file_symlink<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> errors::Result<()> {
-    Ok(try!(unix::fs::symlink(src, dst)))
+    unix::fs::symlink(src, dst).map_err(Into::into)
 }
 
 #[cfg(target_os = "windows")]
 fn create_file_symlink<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> errors::Result<()> {
-    Ok(try!(windows::fs::symlink_file(src, dst)))
-}
-
-pub fn new_io_error<E>(error: E) -> io::Error
-        where E: Into<Box<error::Error + Send + Sync>> {
-    io::Error::new(io::ErrorKind::Other, error)
+    windows::fs::symlink_file(src, dst).map_err(Into::into)
 }

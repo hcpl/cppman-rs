@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use ini::Ini;
 
 use ::errors;
-use util::new_io_error;
 
 
 #[derive(Copy, Clone)] pub enum Pager { Vim, Less, System }
@@ -149,14 +148,17 @@ impl Config {
               .set("UpdateManPath", UpdateManPath::default().to_string())
               .set("Pager", Pager::default().to_string());
 
-        let dir = try!(config_file.as_ref().parent()
-            .ok_or(new_io_error("Not a filename since it does not have a parent path")));
+        let config_file = config_file.as_ref();
+        let dir = try!(config_file.parent()
+            .ok_or(errors::ErrorKind::NotFilename(
+                config_file.to_owned(),
+                "doesn't have a parent path".to_owned())));
         try!(fs::create_dir_all(dir));
         let mut file = try!(File::create(&config_file));
 
         match config.write_to(&mut file) {
             Ok(_)  => Ok(Config {
-                config_file: config_file.as_ref().to_owned(),
+                config_file: config_file.to_owned(),
                 config: RefCell::new(config),
             }),
             Err(e) => Err(e.into()),
