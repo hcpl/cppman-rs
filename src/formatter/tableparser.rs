@@ -205,7 +205,7 @@ fn get_row_width(node: &Node) -> Result<usize, HtmlError> {
 
     for c in node.children.borrow().iter()  {
         if let Some(cspan) = c.attr.get("colspan") {
-            total += try!(cspan.parse::<usize>().map_err(HtmlError::from_error));
+            total += cspan.parse::<usize>().map_err(HtmlError::from_error)?;
         } else {
             total += 1
         }
@@ -240,13 +240,13 @@ fn scan_format(node: &Node,
         }
 
         if let Some(cspan) = node.attr.get("colspan") {
-            for _ in 0..(try!(cspan.parse::<usize>().map_err(HtmlError::from_error)) - 1) {
+            for _ in 0..(cspan.parse::<usize>().map_err(HtmlError::from_error)? - 1) {
                 format_str.push_str("s ");
             }
         }
 
         if let Some(rspan) = node.attr.get("rowspan") {
-            let rspan = try!(rspan.parse::<usize>().map_err(HtmlError::from_error));
+            let rspan = rspan.parse::<usize>().map_err(HtmlError::from_error)?;
             if rspan > 1 {
                 rowspan.insert(index, rspan - 1);
             }
@@ -271,18 +271,18 @@ fn scan_format(node: &Node,
                     node.children.borrow_mut().push(Node::new("td", "", ""));
                 }
 
-                format_str.push_str(&try!(scan_format(
-                    &node.children.borrow()[ci], Some(i), Some(width), rowspan)));
+                format_str.push_str(&scan_format(
+                    &node.children.borrow()[ci], Some(i), Some(width), rowspan)?);
                 ci += 1;
             }
         }
     } else {
         if node.children.borrow().len() > 0 && node.children.borrow()[0].name == "tr" {
-            width = try!(get_row_width(&node.children.borrow()[0]));
+            width = get_row_width(&node.children.borrow()[0])?;
         }
 
         for (i, c) in node.children.borrow().iter().enumerate() {
-            format_str.push_str(&try!(scan_format(&c, Some(i), Some(width), rowspan)));
+            format_str.push_str(&scan_format(&c, Some(i), Some(width), rowspan)?);
         }
     }
 
@@ -308,12 +308,12 @@ fn gen(node: &Node,
 
         output.push_str(".TS\n");
         output.push_str("allbox tab(|);\n");
-        output.push_str(&try!(scan_format(node, None, None, &mut scan_format_rowspan)));
+        output.push_str(&scan_format(node, None, None, &mut scan_format_rowspan)?);
     } else if node.name == "th" || node.name == "td" {
         output.push_str(&format!("T{{\n{}", node.text));
 
         if let Some(rspan) = node.attr.get("rowspan") {
-            let rspan = try!(rspan.parse::<usize>().map_err(HtmlError::from_error));
+            let rspan = rspan.parse::<usize>().map_err(HtmlError::from_error)?;
             if rspan > 1 {
                 rowspan.insert(index, rspan - 1);
             }
@@ -347,13 +347,13 @@ fn gen(node: &Node,
                     node.children.borrow_mut().push(Node::new("td", "", ""));
                 }
 
-                try!(gen(&node.children.borrow()[ci], output, Some(i), Some(i == total - 1), rowspan));
+                gen(&node.children.borrow()[ci], output, Some(i), Some(i == total - 1), rowspan)?;
                 ci += 1;
             }
         }
     } else {
         for (i, c) in node.children.borrow().iter().enumerate() {
-            try!(gen(&c, output, Some(i), Some(i == node.children.borrow().len() - 1), rowspan));
+            gen(&c, output, Some(i), Some(i == node.children.borrow().len() - 1), rowspan)?;
         }
     }
 
@@ -373,6 +373,6 @@ pub fn parse_table(html: &str) -> Result<String, HtmlError> {
     let root = Node::new("root", "", html);
     let mut output = String::new();
     let mut gen_rowspan = HashMap::new();
-    try!(gen(&root, &mut output, None, None, &mut gen_rowspan));
+    gen(&root, &mut output, None, None, &mut gen_rowspan)?;
     Ok(output)
 }

@@ -37,7 +37,7 @@ pub fn update_mandb_path(env: &Environ) -> errors::Result<()> {
 
     let has_path = lines.iter().any(|l| manpath.to_str().map(|p| l.contains(p)).unwrap_or(false));
 
-    let mut f = try!(File::create(&manpath_file));
+    let mut f = File::create(&manpath_file)?;
     if env.config.update_man_path() {
         if !has_path {
             lines.push(format!("MANDATORY_MANPATH\t{}\n", home.join(manpath).display()));
@@ -50,7 +50,7 @@ pub fn update_mandb_path(env: &Environ) -> errors::Result<()> {
     }
 
     for line in lines {
-        try!(write!(f, "{}\n", line));
+        write!(f, "{}\n", line)?;
     }
 
     Ok(())
@@ -61,18 +61,18 @@ pub fn update_man3_link(env: &Environ) -> errors::Result<()> {
 
     if let Ok(metadata) = fs::symlink_metadata(&man3_path) {
         if metadata.file_type().is_symlink() {
-            let link_to = try!(fs::read_link(&man3_path));
+            let link_to = fs::read_link(&man3_path)?;
             if link_to == Path::new(&env.config.source().to_string()) {
                 return Ok(());
             } else {
-                try!(fs::remove_file(&man3_path));
+                fs::remove_file(&man3_path)?;
             }
         } else {
             panic!("Can't create link since `{}' already exists", man3_path.display());
         }
     }
 
-    try!(fs::create_dir_all(env.man_dir.join(env.config.source().to_string())));
+    fs::create_dir_all(env.man_dir.join(env.config.source().to_string()))?;
 
     create_file_symlink(env.config.source().to_string(), &man3_path)
 }
@@ -84,7 +84,7 @@ pub fn get_width() -> errors::Result<usize> {
 
 /// Read groff-formatted text and output man pages.
 fn groff2man(data: &[u8]) -> errors::Result<String> {
-    let width = try!(get_width());
+    let width = get_width()?;
 
     let mut handle = Command::new("groff")
                              .arg("-t")
@@ -99,11 +99,11 @@ fn groff2man(data: &[u8]) -> errors::Result<String> {
     {
         let stdin = handle.stdin.as_mut().expect("Couldn't get mutable Pipestream");
 
-        try!(stdin.write_all(data));
+        stdin.write_all(data)?;
     }
 
-    let output = try!(handle.wait_with_output());
-    let man_text = try!(String::from_utf8(output.stdout));
+    let output = handle.wait_with_output()?;
+    let man_text = String::from_utf8(output.stdout)?;
 
     Ok(man_text)
 }
@@ -111,13 +111,13 @@ fn groff2man(data: &[u8]) -> errors::Result<String> {
 /// Convert HTML text from cplusplus.com to man pages.
 fn html2man(data: &[u8], formatter: fn(&[u8]) -> String) -> errors::Result<String> {
     let groff_text = formatter(data);
-    let man_text = try!(groff2man(groff_text.as_bytes()));
+    let man_text = groff2man(groff_text.as_bytes())?;
     Ok(man_text)
 }
 
 pub fn fixup_html(data: &str) -> errors::Result<String> {
     let doc = Document::from(data);
-    let node = try!(doc.nth(0).ok_or(errors::ErrorKind::NodeNotPresent(0)));
+    let node = doc.nth(0).ok_or(errors::ErrorKind::NodeNotPresent(0))?;
     Ok(node.html())
 }
 

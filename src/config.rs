@@ -149,12 +149,12 @@ impl Config {
               .set("Pager", Pager::default().to_string());
 
         let config_file = config_file.as_ref();
-        let dir = try!(config_file.parent()
+        let dir = config_file.parent()
             .ok_or(errors::ErrorKind::NotFilename(
                 config_file.to_owned(),
-                "doesn't have a parent path".to_owned())));
-        try!(fs::create_dir_all(dir));
-        let mut file = try!(File::create(&config_file));
+                "doesn't have a parent path".to_owned()))?;
+        fs::create_dir_all(dir)?;
+        let mut file = File::create(&config_file)?;
 
         match config.write_to(&mut file) {
             Ok(_)  => Ok(Config {
@@ -168,7 +168,7 @@ impl Config {
 
     /// Store config back to file.
     fn save(&self) -> errors::Result<()> {
-        Ok(try!(self.config.borrow().write_to_file(&self.config_file)))
+        Ok(self.config.borrow().write_to_file(&self.config_file)?)
     }
 
     /// Reload config from file.
@@ -194,8 +194,8 @@ impl Config {
         }
 
         let pager = Pager::default();
-        try!(self.try_set_pager(pager));
-        try!(self.reload());
+        self.try_set_pager(pager)?;
+        self.reload()?;
         Ok(pager)
     }
 
@@ -219,8 +219,8 @@ impl Config {
         }
 
         let update_man_path = UpdateManPath::default();
-        try!(self.try_set_update_man_path(update_man_path.0));
-        try!(self.reload());
+        self.try_set_update_man_path(update_man_path.0)?;
+        self.reload()?;
         Ok(update_man_path.0)
     }
 
@@ -244,8 +244,8 @@ impl Config {
         }
 
         let source = Source::default();
-        try!(self.try_set_source(source));
-        try!(self.reload());
+        self.try_set_source(source)?;
+        self.reload()?;
         Ok(source)
     }
 

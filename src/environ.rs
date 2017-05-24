@@ -40,7 +40,7 @@ impl Environ {
 
         let config = Config::new_from_file(&config_file);
 
-        try!(fs::create_dir_all(&config_dir));
+        fs::create_dir_all(&config_dir)?;
 
         let index_db_re = config_dir.join("index.db");
         let index_db = if index_db_re.exists() {

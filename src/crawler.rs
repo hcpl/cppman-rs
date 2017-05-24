@@ -61,12 +61,12 @@ impl Crawler {
     pub fn crawl<T: IntoUrl>(&mut self, url: T) -> errors::Result<()> {
         self.add_target(url);
 
-        let client = try!(Client::new());
+        let client = Client::new()?;
 
         while self.targets.len() > 0 {
             let (url, _) = self.targets.pop().unwrap();
 
-            let mut res = try!(client.get(url.clone()).send());
+            let mut res = client.get(url.clone()).send()?;
             if !res.status().is_success() {
                 let ct = res.headers().get::<ContentType>();
                 if !ct.is_some() || equal_content_types(ct.unwrap(), &ContentType(mime!(Text/Html))) {
@@ -88,7 +88,7 @@ impl Crawler {
     }
 
     fn add_target<T: IntoUrl>(&mut self, url: T) -> Result<(), url::ParseError> {
-        let url = try!(url.into_url());
+        let url = url.into_url()?;
 
         if !self.visited.contains(&url) {
             self.targets.insert(url, ());

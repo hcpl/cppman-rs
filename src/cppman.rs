@@ -103,7 +103,7 @@ impl Cppman {
     fn process_document(&mut self, doc: Document) -> errors::Result<()> {
         if !self.blacklist.contains(&doc.url) {
             println!("Indexing '{}' ...", doc.url);
-            let name = try!(self.extract_name(&doc.text));
+            let name = self.extract_name(&doc.text)?;
             self.results.insert((name, doc.url));
         } else {
             println!("Skipping blacklisted page '{}' ...", doc.url);
@@ -118,8 +118,8 @@ impl Cppman {
 
         if names.len() > 1 {
             if let Some(caps) = OPERATOR.captures(&names[0].clone()) {
-                let prefix = try!(caps.get(1).ok_or(errors::ErrorKind::NoCapturesIndex(1))).as_str().to_owned();
-                names[0] = try!(caps.get(2).ok_or(errors::ErrorKind::NoCapturesIndex(2))).as_str().to_owned();
+                let prefix = caps.get(1).ok_or(errors::ErrorKind::NoCapturesIndex(1))?.as_str().to_owned();
+                names[0] = caps.get(2).ok_or(errors::ErrorKind::NoCapturesIndex(2))?.as_str().to_owned();
                 names = names.into_iter().map(|n| prefix.to_owned() + &n).collect::<Vec<_>>();
             }
         }
@@ -127,8 +127,8 @@ impl Cppman {
         for n in names {
             match self.db_conn {
                 Some(ref db_conn) => {
-                    try!(db_conn.borrow().execute(&format!(
-                        "INSERT INTO \"{}\" (name, url) VALUES (?, ?)", table), &[&n.trim(), &url]));
+                    db_conn.borrow().execute(&format!(
+                        "INSERT INTO \"{}\" (name, url) VALUES (?, ?)", table), &[&n.trim(), &url])?;
                 },
                 None => return Err(errors::ErrorKind::NoDbConn.into()),
             }
@@ -146,12 +146,12 @@ impl Cppman {
                   do you want to continue [y/N]?");
 
         let mut respond = String::new();
-        try!(io::stdin().read_line(&mut respond));
+        io::stdin().read_line(&mut respond)?;
         if !["y", "ye", "yes"].contains(&respond.trim().to_lowercase().as_str()) {
             return Err(errors::ErrorKind::Interrupted("Not a positive answer".to_owned()).into());
         }
 
-        try!(fs::create_dir_all(&self.env.man_dir));
+        fs::create_dir_all(&self.env.man_dir)?;
 
         self.success_count.set(Some(0));
         self.failure_count.set(Some(0));
@@ -161,16 +161,16 @@ impl Cppman {
         }
 
         {
-            let conn = try!(Connection::open(&self.env.index_db));
+            let conn = Connection::open(&self.env.index_db)?;
 
             let source = self.env.config.source();
             println!("Caching manpages from {} ...", source);
-            let mut stmt = try!(conn.prepare(&format!("SELECT * FROM \"{}\"", source)));
-            let data = try!(stmt.query_and_then(&[], |&ref row| {
-                let a = try!(row.get_checked(0));
-                let b = try!(row.get_checked(1));
+            let mut stmt = conn.prepare(&format!("SELECT * FROM \"{}\"", source))?;
+            let data = stmt.query_and_then(&[], |&ref row| {
+                let a = row.get_checked(0)?;
+                let b = row.get_checked(1)?;
                 Ok((a, b))
-            })).collect::<Result<Vec<(String, String)>, rusqlite::Error>>();
+            })?.collect::<Result<Vec<(String, String)>, rusqlite::Error>>();
 
             if let Ok(d) = data {
                 for (name, url) in d {
@@ -209,13 +209,13 @@ impl Cppman {
             return Ok(());
         }
 
-        try!(fs::create_dir_all(self.env.man_dir.join(source)));
+        fs::create_dir_all(self.env.man_dir.join(source))?;
 
         // There are often some errors in the HTML, for example: missing closing
         // tag. We use fixupHTML to fix this.
         let mut data = String::new();
-        let mut resp = try!(reqwest::get(url));
-        try!(resp.read_to_string(&mut data));
+        let mut resp = reqwest::get(url)?;
+        resp.read_to_string(&mut data)?;
 
         let html2groff: fn(&str, &str) -> String;
 
@@ -227,10 +227,10 @@ impl Cppman {
 
         let groff_text = html2groff(&data, name);
 
-        let mut file = try!(File::create(outname));
+        let mut file = File::create(outname)?;
         let mut enc = GzEncoder::new(file, Compression::Default);
-        try!(enc.write_all(groff_text.as_bytes()));
-        try!(enc.finish());
+        enc.write_all(groff_text.as_bytes())?;
+        enc.finish()?;
 
         Ok(())
     }
@@ -242,7 +242,7 @@ impl Cppman {
 
     /// Call viewer.sh to view man page
     pub fn man(&self, pattern: &str) -> errors::Result<()> {
-        let avail = try!(fs::read_dir(self.env.man_dir.join(self.env.source.to_string())));
+        let avail = fs::read_dir(self.env.man_dir.join(self.env.source.to_string()))?;
         let avail = avail.collect::<Result<Vec<_>, _>>().unwrap_or(Vec::new()).iter().map(|d| d.path()).collect::<Vec<_>>();
 
         if !self.env.index_db.exists() {
@@ -253,20 +253,20 @@ impl Cppman {
         let url;
 
         {
-            let conn = try!(Connection::open(&self.env.index_db));
+            let conn = Connection::open(&self.env.index_db)?;
 
             macro_rules! get_pair {
                 ($sql:expr) => {
                     conn.query_row_and_then(&format!($sql, self.env.source, pattern), &[],
                         |row| {
-                            let a: String = try!(row.get_checked(0));
-                            let b: String = try!(row.get_checked(1));
+                            let a: String = row.get_checked(0)?;
+                            let b: String = row.get_checked(1)?;
                             Ok((a, b))
                         }).map_err(|e: rusqlite::Error| e)
                 }
             }
 
-            let pair = try!({
+            let pair = {
                 // Try direct match
                 get_pair!("SELECT name,url FROM \"{}\" \
                           WHERE name='{}' ORDER BY LENGTH(name)").or(
@@ -279,7 +279,7 @@ impl Cppman {
                                 io::ErrorKind::NotFound,
                                 format!("No manual entry for {}", pattern))
                         })
-            });
+            }?;
 
             page_name = pair.0;
             url = pair.1;
@@ -293,9 +293,9 @@ impl Cppman {
         let pager_type = if stdout_isatty() { self.env.pager.to_string() } else { "pipe".to_owned() };
 
         // Call viewer
-        let columns = try!(self.force_columns.or(Some(try!(get_width())))
+        let columns = self.force_columns.or(Some(get_width()?))
             .ok_or(errors::ErrorKind::Abort(
-                "Cannot determine width: either use --force-columns or switch to tty".to_owned())));
+                "Cannot determine width: either use --force-columns or switch to tty".to_owned()))?;
 
         Command::new("/bin/sh")
                 .arg(&self.env.pager_script)
@@ -315,18 +315,18 @@ impl Cppman {
             return Err(errors::ErrorKind::NoIndexDb.into());
         }
 
-        let conn = try!(Connection::open(&self.env.index_db));
-        let mut stmt = try!(conn.prepare(&format!(
+        let conn = Connection::open(&self.env.index_db)?;
+        let mut stmt = conn.prepare(&format!(
             "SELECT * FROM \"{}\" WHERE name \
              LIKE \"%{}%\" ORDER BY LENGTH(name)",
-            self.env.source, pattern)));
-        let selected = try!(stmt.query_and_then(&[], |&ref row| {
-            let a = try!(row.get_checked(0));
-            let b = try!(row.get_checked(1));
+            self.env.source, pattern))?;
+        let selected = stmt.query_and_then(&[], |&ref row| {
+            let a = row.get_checked(0)?;
+            let b = row.get_checked(1)?;
             Ok((a, b))
-        })).collect::<Result<Vec<(String, String)>, rusqlite::Error>>();
+        })?.collect::<Result<Vec<(String, String)>, rusqlite::Error>>();
 
-        let pat = try!(Regex::new(&format!("(?i)\\({}\\)", pattern)));
+        let pat = Regex::new(&format!("(?i)\\({}\\)", pattern))?;
 
         if let Ok(sel) = selected {
             if sel.len() > 0 {
